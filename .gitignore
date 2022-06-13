@@ -1,1 +1,5 @@
 /target
+/.state.json
+/testdir
+/.cos.yaml
+/ccc.exe

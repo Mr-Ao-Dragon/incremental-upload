@@ -1,49 +1,61 @@
 use std::fs;
 use std::fs::ReadDir;
+use std::io::BufRead;
+use std::io::BufReader;
 use std::io::Error;
 use std::io::Result;
 use std::path::PathBuf;
 use std::io::ErrorKind;
 use std::time::SystemTime;
 
-pub struct FileObjIterator<'a>(&'a FileObj, ReadDir);
+use hex::ToHex;
+use path_absolutize::Absolutize;
+use relative_path::RelativePath;
+use sha1::{Sha1, Digest};
 
-impl FileObjIterator<'_> {
-    fn new(file_obj: &FileObj, rd: ReadDir) -> FileObjIterator {
-        FileObjIterator(file_obj, rd)
+pub struct DirectoryIterator<'a>(&'a File, ReadDir);
+
+impl DirectoryIterator<'_> {
+    fn new(file_obj: &File, rd: ReadDir) -> DirectoryIterator {
+        DirectoryIterator(file_obj, rd)
     }
 }
 
-impl Iterator for FileObjIterator<'_> {
-    type Item = Result<FileObj>;
+impl Iterator for DirectoryIterator<'_> {
+    type Item = Result<File>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        Some(self.1.next().map(|f| -> Result<FileObj> {
+        Some(self.1.next().map(|f| -> Result<File> {
             let mut cloned = self.0.get_raw().clone();
             cloned.push(f?.file_name());
-            FileObj::from(cloned)
+            File::from(cloned)
         })?)
     }
 }
 
-pub struct FileObj {
+pub struct File {
     pub raw: PathBuf
 }
 
-impl FileObj {
-    pub fn new(path: &str) -> Result<FileObj> {
-        let path_cloned = path.to_string();
-        let pathbuf = PathBuf::from(path_cloned);
+impl File {
+    pub fn new(path: &str) -> Result<File> {
+        let _path = path.to_owned();
+        let _path = PathBuf::from(_path);
+        let _path = if _path.is_absolute() { 
+            _path
+        } else {
+            _path.absolutize()?.to_path_buf()
+        };
 
-        FileObj::check_invalid_utf8(&pathbuf, || path.to_string())?;
+        File::check_invalid_utf8(&_path, || path.to_string())?;
 
-        Ok(FileObj { raw: pathbuf })
+        Ok(File { raw: _path })
     }
 
-    pub fn from(pathbuf: PathBuf) -> Result<FileObj> {
-        FileObj::check_invalid_utf8(&pathbuf, || pathbuf.to_string_lossy().to_string())?;
+    pub fn from(pathbuf: PathBuf) -> Result<File> {
+        File::check_invalid_utf8(&pathbuf, || pathbuf.to_string_lossy().to_string())?;
 
-        Ok(FileObj { raw: pathbuf })
+        Ok(File { raw: pathbuf })
     }
 
     fn check_invalid_utf8<'a, F>(pathbuf: &PathBuf, raw_path: F) -> Result<()> where F: FnOnce() -> String {
@@ -79,8 +91,22 @@ impl FileObj {
         &self.raw
     }
 
+    pub fn relative(&self, path: &File) -> String {
+        path.relativized_by(self)
+    }
+
+    pub fn relativized_by(&self, basis: &File) -> String {
+        let basis = &basis.path().replace("\\", "/")[..];
+        let path = &self.path().replace("\\", "/")[..];
+
+        let basis = RelativePath::new(basis);
+        let path = RelativePath::new(path);
+
+        basis.relative(path).to_string()
+    }
+
     pub fn mv(&self, destination: &str) -> Result<()> {
-        let dest = FileObj::new(destination)?;
+        let dest = File::new(destination)?;
 
         if !self.exists() {
             return Err(Error::new(
@@ -109,7 +135,7 @@ impl FileObj {
     }
 
     pub fn cp(&self, destination: &str) -> Result<()> {
-        let dest = FileObj::new(destination)?;
+        let dest = File::new(destination)?;
 
         if !self.exists() {
             return Err(Error::new(
@@ -172,16 +198,29 @@ impl FileObj {
     }
 
     pub fn write(&self, contents: &str) -> Result<()> {
+        if self.exists() {
+            return Err(Error::new(
+                ErrorKind::AlreadyExists, 
+                String::from("failed to write file: ") + self.path()
+            ));
+        }
+        
         fs::write(self.path(), contents)
     }
 
     pub fn read(&self) -> Result<String> {
+        if !self.exists() {
+            return Err(Error::new(
+                ErrorKind::NotFound, 
+                String::from("failed tp open file: ") + self.path()
+            ));
+        }
+
         fs::read_to_string(self.path())
     }
 
     pub fn name(&self) -> &str {
-        self.raw.file_name()
-            .map_or_else(|| "..", |v| v.to_str().expect(""))
+        self.raw.file_name().unwrap().to_str().unwrap()
     }
 
     pub fn length(&self) -> Result<u64> {
@@ -203,25 +242,82 @@ impl FileObj {
         Ok(meta.len())
     }
 
-    pub fn append(&self, name: &str) -> Result<FileObj> {
+    pub fn parent(&self) -> Result<Option<File>> {
+        let mut pathbuf = self.raw.clone();
+        if pathbuf.pop() {
+            Ok(Some(File::from(pathbuf)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn append(&self, name: &str) -> Result<File> {
         let mut pathbuf = self.raw.clone();
         pathbuf.push(name);
 
-        FileObj::check_invalid_utf8(&pathbuf, || name.to_string())?;
+        File::check_invalid_utf8(&pathbuf, || name.to_string())?;
 
-        Ok(FileObj { raw: pathbuf })
+        Ok(File { raw: pathbuf })
     }
 
-    pub fn files(&self) -> Result<FileObjIterator> {
-        Ok(FileObjIterator::new(self, fs::read_dir(self.raw.clone())?))
+    pub fn files(&self) -> Result<DirectoryIterator> {
+        Ok(DirectoryIterator::new(self, fs::read_dir(self.raw.clone())?))
     }
 
+    pub fn sha1(&self) -> Result<String> {
+        let mut hasher = Sha1::new();
 
+        let file_len = self.length()?;
+        let kb = 1024;
+        let mb = 1024 * 1024;
+        let buffer_size = if file_len < 1 * mb {
+            16 * kb
+        } else if file_len < 1 * mb {
+            32 * kb
+        } else if file_len < 2 * mb {
+            64 * kb
+        } else if file_len < 4 * mb {
+            128 * kb
+        } else if file_len < 8 * mb {
+            256 * kb
+        } else if file_len < 16 * mb {
+            512 * kb
+        } else if file_len < 32 * mb {
+            1 * mb
+        } else if file_len < 64 * mb {
+            2 * mb
+        } else if file_len < 128 * mb {
+           4  * mb
+        } else if file_len < 256 * mb {
+           8 * mb
+        } else {
+           16 * mb
+        };
+        
+        let f = std::fs::File::open(self.path())?;
+        let mut reader = BufReader::with_capacity(buffer_size.try_into().unwrap(), f);
+        let mut reads;
+
+        loop {
+            let buf = reader.fill_buf()?;
+            reads = buf.len();
+            hasher.update(&buf[0..reads]);
+            reader.consume(reads);
+            if reads == 0 {
+                break;
+            }
+        }
+
+        let bytes = &hasher.finalize()[..];
+        let sha1 = bytes.encode_hex::<String>();
+        
+        Ok(sha1)
+    }
     
 }
 
-impl Clone for FileObj {
-    fn clone(&self) -> FileObj {
-        FileObj { raw: self.raw.clone() }
+impl Clone for File {
+    fn clone(&self) -> File {
+        File { raw: self.raw.clone() }
     }
 }

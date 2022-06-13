@@ -1,0 +1,22 @@
+state-file: $state
+overlay-mode: true
+fast-comparison: true
+use-local-state: true
+use-remote-state: true
+threads: 10
+file-filters: []
+
+variables:
+  state: .state.json
+  cli: ccc.exe --config-path .cos.yaml
+  bucket: 'cos://sdfs-1254063044'
+
+commands:
+  _workdir: 
+  _encoding: utf-8
+  download-state: $cli cp $bucket/$state $state
+  upload-state: $cli cp "$apath" $bucket/$state
+  delete-file: $cli rm "$bucket/$rpath" --force
+  delete-dir: 
+  upload-file: $cli cp "$apath" "$bucket/$rpath"
+  make-dir: 
