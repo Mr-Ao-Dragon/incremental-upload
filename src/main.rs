@@ -426,6 +426,7 @@ impl<'a> UTOSApplication {
             // 计算并更新状态文件
             let state = walk_dir(&self.source_dir)?;
             let file_contents = state.pretty(4);
+            state_file.parent()?.unwrap().mkdirs()?;
             state_file.write(&file_contents[..])?;
 
             // 更新远端状态文件
