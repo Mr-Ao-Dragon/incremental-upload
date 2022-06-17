@@ -475,7 +475,6 @@ impl<'a> UTOSApplication {
     }
 
     pub fn execute_operations(&self, comparer: &FileComparer) -> AppResult<()> {
-        
         println!(
             "旧文件: {}, 旧目录: {}, 新文件: {}, 新目录: {}", 
             comparer.old_files.len(),
@@ -490,12 +489,15 @@ impl<'a> UTOSApplication {
             .iter()
             .filter_map(|e| if !self.config_overlay_mode || comparer.new_files.contains(e) { Some(&e[..]) } else { None })
             .collect::<Vec<&str>>();
+        let total = filtered_old_files.len();
+        let mut done = 0;
         for f in filtered_old_files {
             let mut replaces: HashMap<String, String> = HashMap::new();
             replaces.insert("rpath".to_string(), f.to_owned());
             self.merge_vars(&mut replaces);
 
-            println!("删除文件: {}", f);
+            done += 1;
+            println!("删除文件({}/{}): {}", done, total, f);
             let mut sp = self.build_subprocess(&self.config_delete_file, &replaces);
 
             pool.execute(move || sp.execute().unwrap())
@@ -504,12 +506,15 @@ impl<'a> UTOSApplication {
 
         // 删除目录
         let mut pool = BlockingThreadPool::new(self.config_threads as usize);
+        let total = &comparer.old_folders.len();
+        let mut done = 0;
         for f in &comparer.old_folders {
             let mut replaces: HashMap<String, String> = HashMap::new();
             replaces.insert("rpath".to_string(), f.to_owned());
             self.merge_vars(&mut replaces);
 
-            println!("删除目录: {}", f);
+            done += 1;
+            println!("删除目录({}/{}): {}", done, total, f);
             let mut sp = self.build_subprocess(&self.config_delete_dir, &replaces);
 
             pool.execute(move || sp.execute().unwrap())
@@ -518,13 +523,16 @@ impl<'a> UTOSApplication {
 
         // 创建目录
         let mut pool = BlockingThreadPool::new(self.config_threads as usize);
+        let total = &comparer.new_folders.len();
+        let mut done = 0;
         for f in &comparer.new_folders {
             let mut replaces: HashMap<String, String> = HashMap::new();
             replaces.insert("apath".to_string(), self.source_dir.append(&f)?.path().to_owned());
             replaces.insert("rpath".to_string(), f.to_owned());
             self.merge_vars(&mut replaces);
 
-            println!("新目录: {}", f);
+            done += 1;
+            println!("新目录({}/{}): {}", done, total, f);
             let mut sp = self.build_subprocess(&self.config_upload_dir, &replaces);
 
             pool.execute(move || sp.execute().unwrap())
@@ -533,13 +541,16 @@ impl<'a> UTOSApplication {
 
         // 上传文件
         let mut pool = BlockingThreadPool::new(self.config_threads as usize);
+        let total = &comparer.new_files.len();
+        let mut done = 0;
         for f in &comparer.new_files {
             let mut replaces: HashMap<String, String> = HashMap::new();
             replaces.insert("apath".to_string(), self.source_dir.append(&f)?.path().to_owned());
             replaces.insert("rpath".to_string(), f.to_owned());
             self.merge_vars(&mut replaces);
 
-            println!("新文件: {}", f);
+            done += 1;
+            println!("新文件({}/{}): {}", done, total, f);
             let mut sp = self.build_subprocess(&self.config_upload_file, &replaces);
 
             pool.execute(move || sp.execute().unwrap())
