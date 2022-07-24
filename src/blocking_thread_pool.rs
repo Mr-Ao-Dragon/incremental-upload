@@ -35,8 +35,9 @@ impl Worker {
         }));
 
         unsafe {
-            let worker2 = &mut *worker.get();
-            (&mut *worker.get()).thread = Option::Some(thread::spawn(move || worker2.run()));
+            let worker_ = &mut *worker.get();
+            let worker__ = &mut *worker.get();
+            worker_.thread = Option::Some(thread::spawn(move || worker__.run()));
         }
         
         worker
@@ -62,8 +63,6 @@ impl Worker {
         }
 
         // println!("t {} exit", self.id);
-
-        self.thread = None;
     }
 
     // pub fn terminate(&mut self) {
@@ -79,7 +78,10 @@ impl Worker {
     // }
 
     pub fn is_terminated(&self) -> bool {
-        self.thread.is_none()
+        match &self.thread {
+            Some(t) => t.is_finished(),
+            None => false,
+        }
     }
 
     pub fn is_busy(&self) -> bool {
@@ -87,11 +89,9 @@ impl Worker {
     }
 
     pub fn wait(&mut self) {
-        if self.is_terminated() {
-            return;
+        if self.thread.is_some() {
+            self.thread.take().unwrap().join().unwrap();
         }
-
-        self.thread.take().unwrap().join().unwrap();
     }
 }
 
