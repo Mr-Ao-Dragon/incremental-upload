@@ -2,8 +2,8 @@ state-file: $state
 overlay-mode: true
 fast-comparison: true
 use-local-state: true
-use-remote-state: true
-threads: 10
+use-remote-state: false
+threads: 4
 file-filters: []
 
 variables:
