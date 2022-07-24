@@ -11,10 +11,10 @@ use encoding_rs::UTF_8;
 use json::JsonValue;
 use json::object;
 use regex::Regex;
-use upload_to_object_storage::file::File;
-use upload_to_object_storage::file_comparer::FileComparer;
-use upload_to_object_storage::file_comparer::SimpleFileObject;
-use upload_to_object_storage::blocking_thread_pool::BlockingThreadPool;
+use incremental_upload::file::File;
+use incremental_upload::file_comparer::FileComparer;
+use incremental_upload::file_comparer::SimpleFileObject;
+use incremental_upload::blocking_thread_pool::BlockingThreadPool;
 use yaml_rust::YamlLoader;
 
 pub type AppResult<R> = std::result::Result<R, Box<dyn std::error::Error>>;
