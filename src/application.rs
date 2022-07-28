@@ -33,7 +33,7 @@ pub struct Application {
     config_overlay_mode: bool,
     config_fast_comparison: bool,
     config_use_local_state: bool,
-    config_upload_state_file: bool,
+    config_use_remote_state: bool,
     config_threads: u32,
     config_file_filters: Vec<String>,
 
@@ -99,6 +99,7 @@ impl Application {
         let config_overlay_mode = doc["overlay-mode"].as_bool().map_or_else(|| false, |v| v);
         let config_fast_comparison = doc["fast-comparison"].as_bool().map_or_else(|| false, |v| v);
         let config_use_local_state = doc["use-local-state"].as_bool().map_or_else(|| false, |v| v);
+        let config_use_remote_state = doc["use-remote-state"].as_bool().map_or_else(|| true, |v| v);
         let config_threads = doc["threads"].as_i64().map_or_else(|| 1, |v| v as u32);
         let config_file_filters = doc["file-filters"]
             .as_vec()
@@ -107,7 +108,6 @@ impl Application {
             .map(|v| v.as_str().unwrap_or("")
             .to_owned())
             .collect::<Vec<String>>();
-        let config_upload_state_file = doc["use-remote-state"].as_bool().map_or_else(|| true, |v| v);
         let config_variables = doc["variables"].clone();
         let config_command = doc["commands"].clone();
         let config_workdir = config_command["_workdir"].as_str().map_or_else(|| "", |v| v);
@@ -156,7 +156,7 @@ impl Application {
             config_use_local_state,
             config_threads,
             config_file_filters,
-            config_upload_state_file,
+            config_use_remote_state,
             
             _config_encoding: config_encoding,
             config_download_state,
@@ -286,17 +286,23 @@ impl Application {
 
         let state_file = File::new(&self.replace_variables(&self.config_state_file, &replaces)[..])?;
 
-        if !self.config_use_local_state {
-            println!("从远端更新状态文件");
-            self.build_subprocess(&self.config_download_state, &replaces).execute()?;
-        } else {
-            println!("从本地加载状态文件")
-        }
+        let state = if self.config_use_local_state || self.config_use_remote_state {
+            if self.config_use_local_state {
+                println!("从本地加载状态文件")
+            } else if self.config_use_remote_state {
+                println!("从远端更新状态文件");
+                self.build_subprocess(&self.config_download_state, &replaces).execute()?;
+            }
 
-        let state = if state_file.exists() { 
-            json::parse(&state_file.read().unwrap()[..])
+            if !state_file.exists() {
+                println!("未找到任何状态文件!使用默认的空状态!");
+                json::JsonValue::new_array()
+            } else {
+                json::parse(&state_file.read().unwrap()[..])
                 .expect(&format!("状态文件无法解析为Json格式: {}", state_file.path())[..])
-        } else { 
+            }
+        } else {
+            println!("不加载任何状态文件!使用默认的空状态!");
             json::JsonValue::new_array()
         };
         
@@ -332,7 +338,7 @@ impl Application {
                 comparer.new_folders.len() + 
                 comparer.new_files.len() > 0;
         let update_local_state = self.config_use_local_state;
-        let update_remote_state = self.config_upload_state_file;
+        let update_remote_state = self.config_use_remote_state;
 
         if has_differences && (update_local_state || update_remote_state) {
             if update_local_state {
