@@ -1,3 +1,4 @@
+source-dir: $source
 state-file: $state
 overlay-mode: true
 fast-comparison: true
@@ -7,6 +8,8 @@ threads: 4
 file-filters: []
 
 variables:
+  # source: your-source-dir
+  source: testdir
   state: .state.json
   cli: ccc.exe --config-path .cos.yaml
   bucket: 'cos://sdfs-1254063044'

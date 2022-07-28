@@ -21,7 +21,6 @@ const APP_NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub struct Application {
-    arg_source: String,
     arg_debug: bool,
     arg_deep_debug: bool,
     arg_dryrun: bool,
@@ -29,7 +28,8 @@ pub struct Application {
 
     workdir: File,
     global_vars: HashMap<String, String>,
-
+    
+    config_source_dir: String,
     config_state_file: String,
     config_overlay_mode: bool,
     config_fast_comparison: bool,
@@ -51,8 +51,6 @@ impl Application {
     pub fn new() -> AppResult<Application> {
         let command = clap::Command::new(APP_NAME)
             .version(VERSION)
-            .arg(Arg::new("source-dir")
-                .help("specify source directory to upload"))
             .arg(Arg::new("config")
                 .short('c')
                 .long("config")
@@ -71,7 +69,6 @@ impl Application {
         let matches = command.get_matches();
     
         let arg_config = matches.value_of("config").expect("the config file muse be supplied.").to_owned();
-        let arg_source = matches.value_of("source-dir").expect("source-dir must be supplied.").to_owned();
         let arg_debug = matches.is_present("debug");
         let arg_deep_debug = matches.is_present("deep-debug");
         let arg_dryrun = matches.is_present("dry-run");
@@ -79,12 +76,6 @@ impl Application {
         // println!("arg_debug: {}, arg_dryrun: {}", arg_debug, arg_dryrun);
 
         // 检查参数
-        let arg_source = if arg_source.ends_with("/") {
-            &arg_source[0..arg_source.len() - 1]
-        } else {
-            &arg_source[..]
-        }.to_owned();
-        let source_dir = File::new(&arg_source).unwrap();
         let config_file = File::new(&arg_config).unwrap();
 
         // 检查参数
@@ -92,14 +83,11 @@ impl Application {
             return Err(Box::new(Error::new(ErrorKind::NotFound, String::from("the config file is not a file"))))
         }
 
-        if !source_dir.is_dir() {
-            return Err(Box::new(Error::new(ErrorKind::NotFound, String::from("the source directory is not a dir"))))
-        }
-
         let config_contents = config_file.read()?;
         let doc = (&YamlLoader::load_from_str(&config_contents)?[0]).clone();
 
         // 读取配置文件
+        let config_source_dir = doc["source-dir"].as_str().expect("the config field 'source-dir must be supplied'").to_owned();
         let config_state_file = doc["state-file"].as_str().map_or_else(|| ".state.json", |v| v).to_owned();
         let config_overlay_mode = doc["overlay-mode"].as_bool().map_or_else(|| false, |v| v);
         let config_fast_comparison = doc["fast-comparison"].as_bool().map_or_else(|| false, |v| v);
@@ -124,6 +112,27 @@ impl Application {
         let config_upload_file = config_command["upload-file"].as_str().map_or_else(|| "", |v| v).to_owned();
         let config_upload_dir = config_command["make-dir"].as_str().map_or_else(|| "", |v| v).to_owned();
 
+        // 检查参数
+        let config_source_dir = if config_source_dir.ends_with("/") {
+            &config_source_dir[0..config_source_dir.len() - 1]
+        } else {
+            &config_source_dir[..]
+        }.to_owned();
+
+        // 替换变量
+        let mut temp_vars: HashMap<String, String> = HashMap::new();
+        if let Some(vars) = config_variables.as_hash() {
+            for (k, v) in vars {
+                temp_vars.insert(k.as_str().unwrap().to_owned(), v.as_str().unwrap().to_owned());
+            }
+        }
+        let config_source_dir = Application::replace_variables(&config_source_dir, &temp_vars);
+
+        let source_dir = File::new(&config_source_dir).unwrap();
+        if !source_dir.is_dir() {
+            return Err(Box::new(Error::new(ErrorKind::NotFound, String::from(format!("the source directory is not a dir: {}", config_source_dir)))))
+        }
+
         let workdir = (if config_workdir.len() > 0 {
             File::new(config_workdir)
         } else {
@@ -147,7 +156,6 @@ impl Application {
         }
         
         Ok(Self {
-            arg_source,
             arg_debug,
             arg_deep_debug,
             arg_dryrun,
@@ -156,6 +164,7 @@ impl Application {
             workdir,
             global_vars,
 
+            config_source_dir,
             config_state_file,
             config_overlay_mode,
             config_fast_comparison,
@@ -224,8 +233,8 @@ impl Application {
             };
         }
 
-        let command = self.replace_variables(command, &vars);
-        let workdir = self.replace_variables(workdir.path(), &vars);
+        let command = Application::replace_variables(command, &vars);
+        let workdir = Application::replace_variables(workdir.path(), &vars);
 
         if debug {
             println!("> {}", command);
@@ -256,7 +265,7 @@ impl Application {
         SubprocessTask::new(Some(subprocess), command, prog, args, divided, debug, self.arg_deep_debug)
     }
 
-    fn replace_variables(&self, text: &str, vars: &HashMap<String, String>) -> String {
+    fn replace_variables(text: &str, vars: &HashMap<String, String>) -> String {
         let mut result = text.to_owned();
         let mut replaced;
 
@@ -288,11 +297,11 @@ impl Application {
     pub fn load_state_file(&self) -> AppResult<(JsonValue, File)> {
         // 加载状态文件
         let mut replaces: HashMap<String, String> = HashMap::new();
-        replaces.insert("source".to_string(), self.arg_source.to_string());
+        replaces.insert("source".to_string(), self.config_source_dir.to_string());
         replaces.insert("workdir".to_string(), self.workdir.path().to_string());
         self.merge_vars(&mut replaces);
 
-        let state_file = File::new(&self.replace_variables(&self.config_state_file, &replaces)[..])?;
+        let state_file = File::new(&Application::replace_variables(&self.config_state_file, &replaces)[..])?;
 
         let state = if self.config_use_local_state || self.config_use_remote_state {
             if self.config_use_local_state {
