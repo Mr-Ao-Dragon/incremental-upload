@@ -447,7 +447,6 @@ impl Application {
         let mut done = 0;
         for f in &comparer.new_folders {
             let mut replaces: HashMap<String, String> = HashMap::new();
-            replaces.insert("apath".to_string(), self.source_dir.append(&f)?.path().to_owned());
             replaces.insert("rpath".to_string(), f.to_owned());
             self.merge_vars(&mut replaces);
 
