@@ -1,10 +1,13 @@
 source-dir: $source
 state-file: $state
-overlay-mode: true
-fast-comparison: true
+overlay-mode: false
+fast-comparison: false
 use-local-state: true
 use-remote-state: false
-threads: 4
+overlay-path: false
+state-indent: 2
+threads: 1
+command-workdir: 
 file-filters: []
 
 variables:
@@ -15,11 +18,11 @@ variables:
   bucket: 'cos://sdfs-1254063044'
 
 commands:
-  _workdir: 
-  _encoding: utf-8
+  start-up: cmd -C "echo clean up"
+  clean-up: cmd -C "echo start up"
   download-state: $cli cp $bucket/$state $state
   upload-state: $cli cp "$apath" $bucket/$state
   delete-file: $cli rm "$bucket/$rpath" --force
   delete-dir: 
   upload-file: $cli cp "$apath" "$bucket/$rpath"
-  make-dir: 
+  making-dir: 

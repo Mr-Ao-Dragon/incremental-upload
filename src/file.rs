@@ -28,34 +28,35 @@ impl Iterator for DirectoryIterator<'_> {
         Some(self.1.next().map(|f| -> Result<File> {
             let mut cloned = self.0.get_raw().clone();
             cloned.push(f?.file_name());
-            File::from(cloned)
+            Ok(File::from(cloned))
         })?)
     }
 }
 
+/// 文件工具类
 pub struct File {
     pub raw: PathBuf
 }
 
 impl File {
-    pub fn new(path: &str) -> Result<File> {
+    pub fn new(path: &str) -> File {
         let _path = path.to_owned();
         let _path = PathBuf::from(_path);
         let _path = if _path.is_absolute() { 
             _path
         } else {
-            _path.absolutize()?.to_path_buf()
+            _path.absolutize().unwrap().to_path_buf()
         };
 
-        File::check_invalid_utf8(&_path, || path.to_string())?;
+        File::check_invalid_utf8(&_path, || path.to_string()).unwrap();
 
-        Ok(File { raw: _path })
+        File { raw: _path }
     }
 
-    pub fn from(pathbuf: PathBuf) -> Result<File> {
-        File::check_invalid_utf8(&pathbuf, || pathbuf.to_string_lossy().to_string())?;
+    pub fn from(pathbuf: PathBuf) -> File {
+        File::check_invalid_utf8(&pathbuf, || pathbuf.to_string_lossy().to_string()).unwrap();
 
-        Ok(File { raw: pathbuf })
+        File { raw: pathbuf }
     }
 
     fn check_invalid_utf8<'a, F>(pathbuf: &PathBuf, raw_path: F) -> Result<()> where F: FnOnce() -> String {
@@ -106,7 +107,7 @@ impl File {
     }
 
     pub fn mv(&self, destination: &str) -> Result<()> {
-        let dest = File::new(destination)?;
+        let dest = File::new(destination);
 
         if !self.exists() {
             return Err(Error::new(
@@ -135,7 +136,7 @@ impl File {
     }
 
     pub fn cp(&self, destination: &str) -> Result<()> {
-        let dest = File::new(destination)?;
+        let dest = File::new(destination);
 
         if !self.exists() {
             return Err(Error::new(
@@ -245,17 +246,17 @@ impl File {
     pub fn parent(&self) -> Result<Option<File>> {
         let mut pathbuf = self.raw.clone();
         if pathbuf.pop() {
-            Ok(Some(File::from(pathbuf)?))
+            Ok(Some(File::from(pathbuf)))
         } else {
             Ok(None)
         }
     }
 
-    pub fn append(&self, name: &str) -> Result<File> {
+    pub fn append(&self, relative_path_or_name: &str) -> Result<File> {
         let mut pathbuf = self.raw.clone();
-        pathbuf.push(name);
+        pathbuf.push(relative_path_or_name);
 
-        File::check_invalid_utf8(&pathbuf, || name.to_string())?;
+        File::check_invalid_utf8(&pathbuf, || relative_path_or_name.to_string())?;
 
         Ok(File { raw: pathbuf })
     }
