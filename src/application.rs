@@ -23,6 +23,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub struct Application {
     arg_source: String,
     arg_debug: bool,
+    arg_deep_debug: bool,
     arg_dryrun: bool,
     source_dir: File,
 
@@ -60,6 +61,9 @@ impl Application {
             .arg(Arg::new("debug")
                 .long("debug")
                 .help("show command line before executing"))
+            .arg(Arg::new("deep-debug")
+                .long("deep-debug")
+                .help("enable deep debugging info"))
             .arg(Arg::new("dry-run")
                 .long("dry-run")
                 .help("run but do not execute any commands actually"));
@@ -69,6 +73,7 @@ impl Application {
         let arg_config = matches.value_of("config").expect("the config file muse be supplied.").to_owned();
         let arg_source = matches.value_of("source-dir").expect("source-dir must be supplied.").to_owned();
         let arg_debug = matches.is_present("debug");
+        let arg_deep_debug = matches.is_present("deep-debug");
         let arg_dryrun = matches.is_present("dry-run");
 
         // println!("arg_debug: {}, arg_dryrun: {}", arg_debug, arg_dryrun);
@@ -144,6 +149,7 @@ impl Application {
         Ok(Self {
             arg_source,
             arg_debug,
+            arg_deep_debug,
             arg_dryrun,
             source_dir,
 
@@ -214,6 +220,7 @@ impl Application {
                 args: vec![],
                 divided: vec![],
                 debug: false,
+                deep_debug: self.arg_deep_debug,
             };
         }
 
@@ -236,6 +243,7 @@ impl Application {
                 args: vec![],
                 divided: vec![],
                 debug: false,
+                deep_debug: self.arg_deep_debug,
             };
         }
         
@@ -245,7 +253,7 @@ impl Application {
         subprocess.args(args.to_owned());
         subprocess.current_dir(workdir.to_owned());
 
-        SubprocessTask::new(Some(subprocess), command, prog, args, divided, debug)
+        SubprocessTask::new(Some(subprocess), command, prog, args, divided, debug, self.arg_deep_debug)
     }
 
     fn replace_variables(&self, text: &str, vars: &HashMap<String, String>) -> String {

@@ -11,11 +11,12 @@ pub struct SubprocessTask{
     pub args: Vec<String>,
     pub divided: Vec<String>,
     pub debug: bool,
+    pub deep_debug: bool,
 }
 
 impl SubprocessTask {
-    pub fn new(subprocess: Option<Command>, command: String, prog: String, args: Vec<String>, divided: Vec<String>, debug: bool) -> SubprocessTask {
-        SubprocessTask { subprocess, command, prog, args, divided, debug }
+    pub fn new(subprocess: Option<Command>, command: String, prog: String, args: Vec<String>, divided: Vec<String>, debug: bool, deep_debug: bool) -> SubprocessTask {
+        SubprocessTask { subprocess, command, prog, args, divided, debug, deep_debug }
     }
 
     pub fn execute(&mut self) -> Result<()> {
@@ -32,7 +33,7 @@ impl SubprocessTask {
         match code {
             None => return Err(Error::new(ErrorKind::Interrupted, "process was terminated by a signal.")),
             Some(c) => {
-                if self.debug || c != 0 {
+                if self.deep_debug || c != 0 {
                     let stderr = &result.stderr[..];
                     let stdout = &result.stdout[..];
                     // let stderr = GB18030.decode(stderr).0;
@@ -43,8 +44,8 @@ impl SubprocessTask {
 
                     if c != 0 {
                         println!("\n命令执行失败，返回码({})，以下是详细信息：", c);
-                    } else if self.debug {
-                        println!("\n调试模式已开启，以下是详细信息：");
+                    } else if self.deep_debug {
+                        println!("\n深度调试模式已开启，以下是详细信息：");
                     }  
                     println!("0.raw : {}", self.command);
                     println!("1.file: {:?}", self.prog);
