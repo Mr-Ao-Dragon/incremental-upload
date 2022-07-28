@@ -41,7 +41,11 @@ impl SubprocessTask {
                     let stderr = UTF_8.decode(stderr).0.replace("\r\n", "\n").replace("\r", "\n").trim().replace("\n", "\n|");
                     let stdout = UTF_8.decode(stdout).0.replace("\r\n", "\n").replace("\r", "\n").trim().replace("\n", "\n|");
 
-                    println!("\n命令执行失败，以下是详细信息：");
+                    if c != 0 {
+                        println!("\n命令执行失败，返回码({})，以下是详细信息：", c);
+                    } else if self.debug {
+                        println!("\n调试模式已开启，以下是详细信息：");
+                    }  
                     println!("0.raw : {}", self.command);
                     println!("1.file: {:?}", self.prog);
                     println!("2.args: {:?}", self.args);
