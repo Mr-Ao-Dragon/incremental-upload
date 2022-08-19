@@ -68,7 +68,7 @@ impl State {
         gen(&self.files)
     }
 
-    pub fn update_from_differences(&mut self, differences: &Differences, sourcedir: &File, hash_cache: &HashCache) {
+    pub fn update_from_differences(&mut self, differences: &Differences, sourcedir: &File, hash_cache: &HashCache, debug_mode: bool) {
         for f in &differences.old_files {
             self.files.remove_file(f);
             // println!("remove file: {}", f);
@@ -111,7 +111,7 @@ impl State {
 
             // pool.execute(move || {
                 let length = file.length().unwrap();
-                let sha1 = hash_cache.get_hash(f);
+                let sha1 = hash_cache.get_hash(f, debug_mode);
                 let modified = file.modified().unwrap();
                 dir.files.push(SimpleFile::new_file(filename, length, &sha1, modified))
             // });

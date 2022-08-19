@@ -12,21 +12,23 @@ use std::io::Result;
 
 pub struct FileComparer<'a> {
     pub base_path: File,
-    pub compare_func: Box<dyn Fn(&FileData, &File, &str, bool, &HashCache) -> bool>,
+    pub compare_func: Box<dyn Fn(&FileData, &File, &str, bool, &HashCache, bool) -> bool>,
     pub hash_cache: &'a HashCache,
+    pub debug_mode: bool,
     pub fast_comparison: bool,
     pub filters: Vec<Regex>,
     pub differences: Differences,
 }
 
 impl FileComparer<'_> {
-    pub fn new<'a, F>(base_path: &File, compare_func: F, hash_cache: &'a HashCache, fast_comparison: bool, filters: Vec<Regex>) -> FileComparer<'a>
-        where F : Fn(&FileData, &File, &str, bool, &HashCache) -> bool + 'static
+    pub fn new<'a, F>(base_path: &File, compare_func: F, hash_cache: &'a HashCache, fast_comparison: bool, filters: Vec<Regex>, debug_mode: bool) -> FileComparer<'a>
+        where F : Fn(&FileData, &File, &str, bool, &HashCache, bool) -> bool + 'static
     {
         FileComparer { 
             base_path: base_path.clone(), 
             compare_func: Box::new(compare_func),
             hash_cache,
+            debug_mode,
             fast_comparison,
             filters,
             differences: Differences::new(),
@@ -68,7 +70,7 @@ impl FileComparer<'_> {
                     }
                 } else {
                     if corresponding.is_file() {
-                        if !(self.compare_func)(&corresponding.as_file().unwrap(), &t, &t.relativized_by(&self.base_path), self.fast_comparison, self.hash_cache) {
+                        if !(self.compare_func)(&corresponding.as_file().unwrap(), &t, &t.relativized_by(&self.base_path), self.fast_comparison, self.hash_cache, self.debug_mode) {
                             // 先删除旧的再获取新的
                             self.add_old(corresponding, &contrast.relativized_by(&self.base_path))?;
                             self.add_new(corresponding, &t)?;

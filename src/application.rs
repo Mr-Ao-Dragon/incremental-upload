@@ -147,7 +147,7 @@ impl App {
                 state_file.rm()?;
             }
             
-            state.update_from_differences(&comparer.differences, &self.sourcedir, &self.hash_cache);
+            state.update_from_differences(&comparer.differences, &self.sourcedir, &self.hash_cache, self.options.debug);
             let file_contents = state.to_json_array();
             let file_contents = if self.config.state_indent > 0 { 
                 file_contents.pretty(self.config.state_indent as u16)
@@ -182,9 +182,9 @@ impl App {
     }
 
     pub fn compare_files(&self, state: &State) -> AppResult<FileComparer> {
-        let compare_func = |remote: &FileData, local: &File, path: &str, fast_comparison: bool, hash_cache: &HashCache| -> bool {
+        let compare_func = |remote: &FileData, local: &File, path: &str, fast_comparison: bool, hash_cache: &HashCache, debug_mode: bool| -> bool {
             (fast_comparison && remote.modified == local.modified().map_or_else(|_e| 0, |v| v)) || 
-            remote.sha1 == hash_cache.get_hash(path)
+            remote.sha1 == hash_cache.get_hash(path, debug_mode)
         };
         
         // 预编译正则表达式
@@ -198,7 +198,7 @@ impl App {
         }
         
         // 计算差异
-        let mut comparer = FileComparer::new(&self.sourcedir, Box::new(compare_func), &self.hash_cache, self.config.fast_comparison, regexes_compiled);
+        let mut comparer = FileComparer::new(&self.sourcedir, Box::new(compare_func), &self.hash_cache, self.config.fast_comparison, regexes_compiled, self.options.debug);
         println!("正在计算文件差异...");
         comparer.compare(&self.sourcedir, &state)?;
 
