@@ -1,7 +1,7 @@
 source-dir: $source
 state-file: $state
 overlay-mode: false
-fast-comparison: false
+fast-comparison: true
 use-local-state: true
 use-remote-state: false
 overlay-path: false

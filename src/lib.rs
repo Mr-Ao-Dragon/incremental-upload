@@ -10,5 +10,6 @@ pub mod variable_replace;
 pub mod simple_file;
 pub mod file_state;
 pub mod differences;
+pub mod hash_cache;
 
 pub type AppResult<R> = std::result::Result<R, Box<dyn std::error::Error>>;

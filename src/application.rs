@@ -11,6 +11,7 @@ use crate::blocking_thread_pool::BlockingThreadPool;
 use crate::file::File;
 use crate::file_comparer::FileComparer;
 use crate::file_state::State;
+use crate::hash_cache::HashCache;
 use crate::simple_file::FileData;
 use crate::subprocess_task::SubprocessTask;
 use crate::utils::command_split;
@@ -20,6 +21,7 @@ pub struct App {
     options: AppOptions,
     config: AppConfig,
     variables: VariableReplace,
+    hash_cache: HashCache,
     sourcedir: File,
     workdir: File,
 }
@@ -50,6 +52,8 @@ impl App {
             return Err(Box::new(Error::new(ErrorKind::NotFound, String::from(format!("the workdir is not a dir: {}", workdir.path())))))
         }
 
+        let hash_cache = HashCache::new(&sourcedir);
+
         let mut variables = VariableReplace::new();
         variables.variables.extend(config.variables.to_owned());
 
@@ -60,6 +64,7 @@ impl App {
             options,
             config,
             variables,
+            hash_cache,
             sourcedir,
             workdir,
         })
@@ -142,7 +147,7 @@ impl App {
                 state_file.rm()?;
             }
             
-            state.update_from_differences(&comparer.differences, &self.sourcedir);
+            state.update_from_differences(&comparer.differences, &self.sourcedir, &self.hash_cache);
             let file_contents = state.to_json_array();
             let file_contents = if self.config.state_indent > 0 { 
                 file_contents.pretty(self.config.state_indent as u16)
@@ -177,10 +182,10 @@ impl App {
     }
 
     pub fn compare_files(&self, state: &State) -> AppResult<FileComparer> {
-        fn compare_func<'a>(remote: &FileData, local: &File, _path: &str, fast_comparison: bool) -> bool {
+        let compare_func = |remote: &FileData, local: &File, path: &str, fast_comparison: bool, hash_cache: &HashCache| -> bool {
             (fast_comparison && remote.modified == local.modified().map_or_else(|_e| 0, |v| v)) || 
-            remote.sha1 == local.sha1().map_or_else(|_e| "".to_string(), |v| v)
-        }
+            remote.sha1 == hash_cache.get_hash(path)
+        };
         
         // 预编译正则表达式
         let mut regexes_compiled = Vec::<Regex>::new();
@@ -193,7 +198,7 @@ impl App {
         }
         
         // 计算差异
-        let mut comparer = FileComparer::new(&self.sourcedir, Box::new(compare_func), self.config.fast_comparison, regexes_compiled);
+        let mut comparer = FileComparer::new(&self.sourcedir, Box::new(compare_func), &self.hash_cache, self.config.fast_comparison, regexes_compiled);
         println!("正在计算文件差异...");
         comparer.compare(&self.sourcedir, &state)?;
 

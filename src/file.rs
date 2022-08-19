@@ -272,27 +272,27 @@ impl File {
         let kb = 1024;
         let mb = 1024 * 1024;
         let buffer_size = if file_len < 1 * mb {
-            16 * kb
-        } else if file_len < 1 * mb {
             32 * kb
-        } else if file_len < 2 * mb {
+        } else if file_len < 1 * mb {
             64 * kb
-        } else if file_len < 4 * mb {
+        } else if file_len < 2 * mb {
             128 * kb
-        } else if file_len < 8 * mb {
+        } else if file_len < 4 * mb {
             256 * kb
-        } else if file_len < 16 * mb {
+        } else if file_len < 8 * mb {
             512 * kb
-        } else if file_len < 32 * mb {
+        } else if file_len < 16 * mb {
             1 * mb
+        } else if file_len < 32 * mb {
+            4 * mb
         } else if file_len < 64 * mb {
-            2 * mb
+            8 * mb
         } else if file_len < 128 * mb {
-           4  * mb
+           32  * mb
         } else if file_len < 256 * mb {
-           8 * mb
+           64 * mb
         } else {
-           16 * mb
+           256 * mb
         };
         
         let f = std::fs::File::open(self.path())?;

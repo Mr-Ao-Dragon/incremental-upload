@@ -3,27 +3,30 @@ use regex::Regex;
 use crate::differences::Differences;
 use crate::file::File;
 use crate::file_state::State;
+use crate::hash_cache::HashCache;
 use crate::simple_file::FileData;
 use crate::simple_file::SimpleFile;
 
 use std::io::Error;
 use std::io::Result;
 
-pub struct FileComparer {
+pub struct FileComparer<'a> {
     pub base_path: File,
-    pub compare_func: Box<dyn Fn(&FileData, &File, &str, bool) -> bool>,
+    pub compare_func: Box<dyn Fn(&FileData, &File, &str, bool, &HashCache) -> bool>,
+    pub hash_cache: &'a HashCache,
     pub fast_comparison: bool,
     pub filters: Vec<Regex>,
     pub differences: Differences,
 }
 
-impl FileComparer {
-    pub fn new<F>(base_path: &File, compare_func: F, fast_comparison: bool, filters: Vec<Regex>) -> FileComparer 
-        where F : Fn(&FileData, &File, &str, bool) -> bool + 'static
+impl FileComparer<'_> {
+    pub fn new<'a, F>(base_path: &File, compare_func: F, hash_cache: &'a HashCache, fast_comparison: bool, filters: Vec<Regex>) -> FileComparer<'a>
+        where F : Fn(&FileData, &File, &str, bool, &HashCache) -> bool + 'static
     {
         FileComparer { 
             base_path: base_path.clone(), 
             compare_func: Box::new(compare_func),
+            hash_cache,
             fast_comparison,
             filters,
             differences: Differences::new(),
@@ -65,7 +68,7 @@ impl FileComparer {
                     }
                 } else {
                     if corresponding.is_file() {
-                        if !(self.compare_func)(&corresponding.as_file().unwrap(), &t, &t.relativized_by(&self.base_path), self.fast_comparison) {
+                        if !(self.compare_func)(&corresponding.as_file().unwrap(), &t, &t.relativized_by(&self.base_path), self.fast_comparison, self.hash_cache) {
                             // 先删除旧的再获取新的
                             self.add_old(corresponding, &contrast.relativized_by(&self.base_path))?;
                             self.add_new(corresponding, &t)?;

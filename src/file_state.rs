@@ -3,6 +3,7 @@ use json::object;
 
 use crate::differences::Differences;
 use crate::file::File;
+use crate::hash_cache::HashCache;
 use crate::simple_file::DirData;
 use crate::simple_file::SimpleFile;
 use crate::utils::get_basename;
@@ -67,7 +68,7 @@ impl State {
         gen(&self.files)
     }
 
-    pub fn update_from_differences(&mut self, differences: &Differences, sourcedir: &File) {
+    pub fn update_from_differences(&mut self, differences: &Differences, sourcedir: &File, hash_cache: &HashCache) {
         for f in &differences.old_files {
             self.files.remove_file(f);
             // println!("remove file: {}", f);
@@ -92,11 +93,12 @@ impl State {
             dir.files.push(SimpleFile::new_directory(filename, Vec::new()));
         }
 
+        // let cpus = num_cpus::get();
+        // let pool = BlockingThreadPool::new(cpus);
+
         for f in &differences.new_files {
             let parent = get_dirname(f);
             let filename = get_basename(f);
-
-            // println!("new file: {}", f);
 
             let dir: &mut DirData = if parent.is_some() {
                 self.files.get_file_mut(parent.unwrap()).unwrap().as_dir_mut().unwrap()
@@ -104,13 +106,18 @@ impl State {
                 &mut self.files
             };
 
+            
             let file = sourcedir.append(f).unwrap();
-            let length = file.length().unwrap();
-            let sha1 = file.sha1().unwrap();
-            let modified = file.modified().unwrap();
 
-            dir.files.push(SimpleFile::new_file(filename, length, &sha1, modified))
+            // pool.execute(move || {
+                let length = file.length().unwrap();
+                let sha1 = hash_cache.get_hash(f);
+                let modified = file.modified().unwrap();
+                dir.files.push(SimpleFile::new_file(filename, length, &sha1, modified))
+            // });
         }
+
+        // drop(pool);
     }
 }
 
