@@ -253,7 +253,7 @@ impl App {
         let mut done = 0;
         for f in filtered_old_files {
             let mut vars = self.variables.to_owned();
-            vars.add("rpath", f);
+            vars.add("path", f);
 
             done += 1;
             println!("删除文件({}/{}): {}", done, total, f);
@@ -271,7 +271,7 @@ impl App {
         let mut done = 0;
         for f in &diff.old_folders {
             let mut vars = self.variables.to_owned();
-            vars.add("rpath", f);
+            vars.add("path", f);
 
             done += 1;
             println!("删除目录({}/{}): {}", done, total, f);
@@ -289,7 +289,7 @@ impl App {
         let mut done = 0;
         for f in &diff.new_folders {
             let mut vars = self.variables.to_owned();
-            vars.add("rpath", f);
+            vars.add("path", f);
 
             done += 1;
             println!("新目录({}/{}): {}", done, total, f);
@@ -307,8 +307,7 @@ impl App {
         let mut done = 0;
         for f in &diff.new_files {
             let mut vars = self.variables.to_owned();
-            vars.add("apath", self.sourcedir.append(&f)?.path());
-            vars.add("rpath", f);
+            vars.add("path", f);
 
             done += 1;
             println!("新文件({}/{}): {}", done, total, f);
