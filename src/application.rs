@@ -91,13 +91,13 @@ impl App {
 
         let mut command_devided = command_devided.iter().map(|s| vars.apply(s)).collect::<Vec<String>>();
 
-        let splitting = command_devided[0].starts_with("+");
-        if splitting {
+        let do_not_split = command_devided[0].starts_with("+");
+        if do_not_split {
             command_devided[0] = (&(command_devided[0])[1..]).to_owned();
+        }
 
-            if command_devided.len() == 1 {
-                command_devided = command_split(&command_devided[0]);
-            }
+        if !do_not_split && command_devided.len() == 1 {
+            command_devided = command_split(&command_devided[0]);
         }
 
         let prog = command_devided.first().unwrap().clone(); 
