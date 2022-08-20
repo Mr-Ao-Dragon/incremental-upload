@@ -21,7 +21,7 @@ impl SubprocessTask {
 
     pub fn execute(&mut self) -> Result<()> {
         if self.debug {
-            println!("> {} {}", self.show_output, self.command);
+            println!("> {}", self.command);
         }
     
         if self.subprocess.is_none() {
