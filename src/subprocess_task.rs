@@ -6,22 +6,19 @@ use encoding_rs::UTF_8;
 
 pub struct SubprocessTask{
     pub subprocess: Option<Command>,
-    pub command: String,
-    pub prog: String,
-    pub args: Vec<String>,
     pub divided: Vec<String>,
     pub debug: bool,
     pub show_output: bool,
 }
 
 impl SubprocessTask {
-    pub fn new(subprocess: Option<Command>, command: String, prog: String, args: Vec<String>, divided: Vec<String>, debug: bool, show_output: bool) -> SubprocessTask {
-        SubprocessTask { subprocess, command, prog, args, divided, debug, show_output }
+    pub fn new(subprocess: Option<Command>, divided: Vec<String>, debug: bool, show_output: bool) -> SubprocessTask {
+        SubprocessTask { subprocess, divided, debug, show_output }
     }
 
     pub fn execute(&mut self) -> Result<()> {
         if self.debug {
-            println!("> {}", self.command);
+            println!("> {:?}", self.divided);
         }
     
         if self.subprocess.is_none() {
@@ -30,7 +27,7 @@ impl SubprocessTask {
 
         let result = &mut self.subprocess.take().unwrap()
             .output()
-            .expect(&format!("failed to execute command-line: {}", self.command)[..]);
+            .expect(&format!("failed to execute command-line: {:?}", self.divided)[..]);
     
         let code = result.status.code();
 
@@ -47,9 +44,7 @@ impl SubprocessTask {
 
                 if c != 0 {
                     println!("\n命令执行失败，返回码({})，以下是详细信息：", c);
-                    println!("0.raw : {}", self.command);
-                    println!("1.file: {:?}", self.prog);
-                    println!("2.args: {:?}", self.args);
+                    println!("command-line : {:?}", self.divided);
 
                     if stdout.trim().len() > 0 {
                         println!("=====stdout=====\n|{}", stdout.trim());

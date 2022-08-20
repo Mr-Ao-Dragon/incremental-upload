@@ -4,7 +4,6 @@ overlay-mode: false
 fast-comparison: true
 use-local-state: true
 use-remote-state: false
-overlay-path: false
 state-indent: 2
 threads: 1
 command-workdir: 
@@ -18,8 +17,8 @@ variables:
   bucket: 'cos://sdfs-1254063044'
 
 commands:
-  start-up: cmd -C "echo clean up"
-  clean-up: cmd -C "echo start up"
+  start-up: 
+  clean-up: 
   download-state: $cli cp $bucket/$state $state
   upload-state: $cli cp "$apath" $bucket/$state
   delete-file: $cli rm "$bucket/$rpath" --force

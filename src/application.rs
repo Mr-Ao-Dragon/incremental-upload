@@ -70,33 +70,51 @@ impl App {
         })
     }
 
-    fn build_subprocess(&self, command: &str, vars: &VariableReplace) -> AppResult<SubprocessTask> {
+    fn build_subprocesses(&self, commands: &Vec<Vec<String>>, vars: &VariableReplace) -> AppResult<Vec<SubprocessTask>> {
+        let mut result: Vec<SubprocessTask> = Vec::new();
+
+        for command in commands {
+            result.push(self.build_subprocess(command, vars)?);
+        }
+
+        Ok(result)
+    }
+
+    fn build_subprocess(&self, command_devided: &Vec<String>, vars: &VariableReplace) -> AppResult<SubprocessTask> {
         let workdir: &File = &self.workdir;
         let debug: bool = self.options.debug;
         let dry_run: bool = self.options.dryrun;
 
-        if command.is_empty() {
+        if command_devided.is_empty() {
             return Err(Box::new(Error::new(ErrorKind::InvalidInput, "subprocess command line must be not empty")));
         }
 
-        let show_output = command.starts_with("+");
-        let command = vars.apply(if show_output { &command[1..] } else { &command });
-        let workdir = vars.apply(workdir.path());
+        let mut command_devided = command_devided.iter().map(|s| vars.apply(s)).collect::<Vec<String>>();
 
-        let divided = command_split(&command);
-        let prog = divided.first().unwrap().clone(); 
-        let args = if divided.len() > 0 { divided[1..].to_vec() } else { vec![] };
+        let splitting = command_devided[0].starts_with("+");
+        if splitting {
+            command_devided[0] = (&(command_devided[0])[1..]).to_owned();
+
+            if command_devided.len() == 1 {
+                command_devided = command_split(&command_devided[0]);
+            }
+        }
+
+        let prog = command_devided.first().unwrap().clone(); 
+        let args = if command_devided.len() > 0 { command_devided[1..].to_vec() } else { vec![] };
         
+        let workdir = vars.apply(workdir.path());
         let mut subprocess = Command::new(prog.to_owned());
 
-        // 覆盖PATH变量为工作目录
-        if self.config.overlay_mode {
-            subprocess.env("PATH", workdir.to_owned());
-        }
+        let path_separator = if cfg!(target_os = "windows") { ";" } else { ":" };
+        let path = subprocess.get_envs().filter_map(|(k, v)| if k == "PATH" { 
+            v.map_or_else(|| None, |value| Some(value.to_str().unwrap().to_owned()))
+        } else { None }).next();
+        subprocess.env("PATH", &((if path.is_some() { path.unwrap() + path_separator } else { "".to_string() }) + &workdir));
         subprocess.args(args.to_owned());
         subprocess.current_dir(workdir.to_owned());
 
-        Ok(SubprocessTask::new(if !dry_run { Some(subprocess) } else { None }, command, prog, args, divided, debug, show_output))
+        Ok(SubprocessTask::new(if !dry_run { Some(subprocess) } else { None }, command_devided, debug, false))
     }
 
     fn get_state_file(&self) -> File {
@@ -113,7 +131,9 @@ impl App {
             } else if use_remote_state {
                 println!("从远端更新状态文件");
                 if !self.config.download_state.is_empty() {
-                    self.build_subprocess(&self.config.download_state, &self.variables)?.execute()?;
+                    for mut p in self.build_subprocesses(&self.config.download_state, &self.variables)? {
+                        p.execute()?;
+                    }
                 }
             }
 
@@ -166,7 +186,9 @@ impl App {
                 vars.add("apath", state_file.path());
 
                 if !self.config.upload_state.is_empty() {
-                    self.build_subprocess(&self.config.upload_state, &vars)?.execute()?;
+                    for mut p in self.build_subprocesses(&self.config.upload_state, &vars)? {
+                        p.execute()?;
+                    }
                 }
             }
 
@@ -216,14 +238,16 @@ impl App {
 
         // 执行用户初始化指令
         if comparer.differences.has_differences() && !self.config.start_up.is_empty() {
-            self.build_subprocess(&self.config.start_up, &self.variables)?.execute()?;
+            for mut p in self.build_subprocesses(&self.config.start_up, &self.variables)? {
+                p.execute()?;
+            }
         }
         
         // 删除文件
         let pool = BlockingThreadPool::new(self.config.threads as usize);
         let filtered_old_files = diff.old_files
             .iter()
-            .filter_map(|e| if !self.config.overlay_mode || diff.new_files.contains(e) { Some(&e[..]) } else { None })
+            .filter_map(|e| if self.config.overlay_mode && diff.new_files.contains(e) { None } else { Some(&e[..]) })
             .collect::<Vec<&str>>();
         let total = filtered_old_files.len();
         let mut done = 0;
@@ -235,8 +259,8 @@ impl App {
             println!("删除文件({}/{}): {}", done, total, f);
 
             if !self.config.delete_file.is_empty() {
-                let mut sp = self.build_subprocess(&self.config.delete_file, &vars)?;
-                pool.execute(move || sp.execute().unwrap())
+                let sp = self.build_subprocesses(&self.config.delete_file, &vars)?;
+                pool.execute(move || for mut p in sp { p.execute().unwrap() })
             }
         }
         drop(pool);
@@ -253,8 +277,8 @@ impl App {
             println!("删除目录({}/{}): {}", done, total, f);
 
             if !self.config.delete_dir.is_empty() {
-                let mut sp = self.build_subprocess(&self.config.delete_dir, &vars)?;
-                pool.execute(move || sp.execute().unwrap())
+                let sp = self.build_subprocesses(&self.config.delete_dir, &vars)?;
+                pool.execute(move || for mut p in sp { p.execute().unwrap() })
             }
         }
         drop(pool);
@@ -271,8 +295,8 @@ impl App {
             println!("新目录({}/{}): {}", done, total, f);
 
             if !self.config.upload_dir.is_empty() {
-                let mut sp = self.build_subprocess(&self.config.upload_dir, &vars)?;
-                pool.execute(move || sp.execute().unwrap())
+                let sp = self.build_subprocesses(&self.config.upload_dir, &vars)?;
+                pool.execute(move || for mut p in sp { p.execute().unwrap() })
             }
         }
         drop(pool);
@@ -290,15 +314,17 @@ impl App {
             println!("新文件({}/{}): {}", done, total, f);
 
             if !self.config.upload_file.is_empty() {
-                let mut sp = self.build_subprocess(&self.config.upload_file, &vars)?;
-                pool.execute(move || sp.execute().unwrap())
+                let sp = self.build_subprocesses(&self.config.upload_file, &vars)?;
+                pool.execute(move || { for mut p in sp { p.execute().unwrap(); }})
             }
         }
         drop(pool);
 
         // 执行用户清理指令
         if comparer.differences.has_differences() && !self.config.clean_up.is_empty() {
-            self.build_subprocess(&self.config.clean_up, &self.variables)?.execute()?;
+            for mut p in self.build_subprocesses(&self.config.clean_up, &self.variables)? {
+                p.execute()?;
+            }
         }
 
         Ok(())
