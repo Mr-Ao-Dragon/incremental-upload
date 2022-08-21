@@ -27,6 +27,7 @@ command-workdir:
 
 # 文件过滤器，使用正则表达式完整匹配语法，匹配的文件才会被执行到delete-file, delete-dir, upload-file, making-dir命令中
 # 若有多个过滤器，文件路径需要全部匹配才会执行delete-file, delete-dir, upload-file, making-dir命令
+# 如果过滤器以!开头，则过滤器的匹配条件会被翻转。未匹配时返回true，匹配时返回false
 file-filters: []
 
 # 自定义变量定义，变量之间可以互相嵌套

@@ -2,7 +2,6 @@ use std::env;
 use std::io::Error;
 use std::io::ErrorKind;
 use std::process::Command;
-use regex::Regex;
 
 use crate::AppResult;
 use crate::app_config::AppConfig;
@@ -12,6 +11,7 @@ use crate::file::File;
 use crate::file_comparer::FileComparer;
 use crate::file_state::State;
 use crate::hash_cache::HashCache;
+use crate::rule_filter::RuleFilter;
 use crate::simple_file::FileData;
 use crate::subprocess_task::SubprocessTask;
 use crate::utils::command_split;
@@ -22,6 +22,7 @@ pub struct App {
     config: AppConfig,
     variables: VariableReplace,
     hash_cache: HashCache,
+    file_filter: RuleFilter,
     sourcedir: File,
     workdir: File,
 }
@@ -53,6 +54,7 @@ impl App {
         }
 
         let hash_cache = HashCache::new(&sourcedir);
+        let file_filter = RuleFilter::new(&config.file_filters)?;
 
         let mut variables = VariableReplace::new();
         variables.variables.extend(config.variables.to_owned());
@@ -65,6 +67,7 @@ impl App {
             config,
             variables,
             hash_cache,
+            file_filter,
             sourcedir,
             workdir,
         })
@@ -209,18 +212,8 @@ impl App {
             remote.sha1 == hash_cache.get_hash(path, debug_mode)
         };
         
-        // 预编译正则表达式
-        let mut regexes_compiled = Vec::<Regex>::new();
-        for pattern in &self.config.file_filters {
-            let pat = Regex::new(&pattern[..]);
-            if pat.is_err() {
-                return Err(Box::new(Error::new(ErrorKind::InvalidInput, "fail to compile the regex: ".to_string() + &pattern)));
-            }
-            regexes_compiled.push(pat.unwrap());
-        }
-        
         // 计算差异
-        let mut comparer = FileComparer::new(&self.sourcedir, Box::new(compare_func), &self.hash_cache, self.config.fast_comparison, regexes_compiled, self.options.debug);
+        let mut comparer = FileComparer::new(&self.sourcedir, Box::new(compare_func), &self.hash_cache, self.config.fast_comparison, &self.file_filter, self.options.debug);
         println!("正在计算文件差异...");
         comparer.compare(&self.sourcedir, &state)?;
 
@@ -329,7 +322,35 @@ impl App {
         Ok(())
     }
 
+    fn test_filter(&self) -> AppResult<()> {
+        fn walk(directory: &File, base: &File, filter: &RuleFilter) -> AppResult<()> {
+            for f in directory.files()? {
+                let f = f?;
+                let relative_path = f.relativized_by(base);
+                let matched = filter.test_all(&relative_path, true);
+                if matched {
+                    println!("matched: {}", relative_path);
+                }
+
+                if f.is_dir() {
+                    walk(&f, base, filter)?;
+                }
+            }
+
+            Ok(())
+        }
+
+        walk(&self.sourcedir, &self.sourcedir, &self.file_filter)?;
+
+        Ok(())
+    }
+
     pub fn main(&mut self) -> AppResult<()> {
+        if self.options.test_filter {
+            self.test_filter()?;
+            return Ok(());
+        }
+
         let state_file = self.get_state_file();
         let mut state = self.load_state_from_file(&state_file)?;
         let comparer = self.compare_files(&state)?;

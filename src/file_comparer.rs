@@ -1,9 +1,8 @@
-use regex::Regex;
-
 use crate::differences::Differences;
 use crate::file::File;
 use crate::file_state::State;
 use crate::hash_cache::HashCache;
+use crate::rule_filter::RuleFilter;
 use crate::simple_file::FileData;
 use crate::simple_file::SimpleFile;
 
@@ -16,12 +15,12 @@ pub struct FileComparer<'a> {
     pub hash_cache: &'a HashCache,
     pub debug_mode: bool,
     pub fast_comparison: bool,
-    pub filters: Vec<Regex>,
+    pub filters: &'a RuleFilter,
     pub differences: Differences,
 }
 
 impl FileComparer<'_> {
-    pub fn new<'a, F>(base_path: &File, compare_func: F, hash_cache: &'a HashCache, fast_comparison: bool, filters: Vec<Regex>, debug_mode: bool) -> FileComparer<'a>
+    pub fn new<'a, F>(base_path: &File, compare_func: F, hash_cache: &'a HashCache, fast_comparison: bool, filters: &'a RuleFilter, debug_mode: bool) -> FileComparer<'a>
         where F : Fn(&FileData, &File, &str, bool, &HashCache, bool) -> bool + 'static
     {
         FileComparer { 
@@ -189,10 +188,7 @@ impl FileComparer<'_> {
     }
 
     fn filter<'a>(&self, test: &str) -> bool {
-        if self.filters.is_empty() {
-            return true;
-        }
-        self.filters.iter().any(|p| p.is_match(test))
+        self.filters.test_all(test, true)
     }
 
     pub fn compare(&mut self, directory: &File, contrast: &State) -> Result<()> {

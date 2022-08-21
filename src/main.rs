@@ -22,7 +22,7 @@ fn main() {
         let current_backtrace = Backtrace::new();
         println!("{:#?}", current_backtrace);
         
-        // ph(panic_info);
+        println!("{}\n", panic_info);
         println!("程序发生错误, 以上为错误详情");
         process::exit(1);
     }));
