@@ -186,7 +186,7 @@ impl App {
                 println!("更新远端状态文件...");
 
                 let mut vars = self.variables.to_owned();
-                vars.add("apath", state_file.path());
+                vars.add("path", state_file.path());
 
                 if !self.config.upload_state.is_empty() {
                     for mut p in self.build_subprocesses(&self.config.upload_state, &vars)? {
