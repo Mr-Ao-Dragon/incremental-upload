@@ -25,7 +25,7 @@ threads: 1
 # commands节点下所有的命令执行时的工作目录，默认继承自父进程
 command-workdir: 
 
-# 文件过滤器，使用正则表达式完整匹配语法，匹配的文件才会被执行到delete-file, delete-dir, upload-file, making-dir命令中
+# 文件过滤器，使用正则表达式语法，匹配的文件才会被执行到delete-file, delete-dir, upload-file, making-dir命令中
 # 若有多个过滤器，文件路径需要全部匹配才会执行delete-file, delete-dir, upload-file, making-dir命令
 # 如果过滤器以!开头，则过滤器的匹配条件会被翻转。未匹配时返回true，匹配时返回false
 file-filters: []
@@ -42,6 +42,19 @@ variables:
 # 所有命令可用的全局变量：
 #   $source：源目录的绝对路径
 #   $workdir：工作目录的绝对路径
+# 每个子指令都可以写成列表的形式来执行多个步骤，比如
+# start-up:
+#   - echo step one now
+#   - echo step two now
+# 如果子命令写成上面那样的单行单行的列表，每一行的字符串都会被按空格拆分成程序名+应用程序参数的形式
+# 如果写成子列表的形式，则直接使用你指定的拆分顺序，而不是由程序自动按空格拆分（多数情况下你并不需要用到该功能）
+# 也可以将子命令写成列表和单行混用的形式。如果你的命令行就是单行，且不希望被自动拆分，可以在字符串最前面加一个+来避免
+# start-up: # 演示混合风格
+#   - echo step one now # 使用自动命令行拆分（按空格）：[echo, step, one, now]，其中echo是程序名，step和one是参数
+#   - - echo # 使用手动命令行拆分：[echo, step one, now]，其中echo是程序名，step one是参数1。now是参数2
+#     - step two
+#     - now
+#   - +echo step three now # 禁用自动命令行拆分：[echo step three now]，其中echo step three now是一个完整的文件名，后面无任何参数
 commands:
   # 传输初始化命令，在有文件差异存在时，此命令最先被执行。若无文件差异，则不会被执行
   start-up: 
@@ -53,6 +66,7 @@ commands:
   download-state: $cli cp $bucket/$state $state
 
   # 将本地状态文件上传到远程的命令，仅当开启use-remote-state时会被执行
+  # 可用局部变量：$path：状态文件的相对路径
   upload-state: $cli cp "$source/$path" $bucket/$state
 
   # 删除远程文件的命令
