@@ -259,7 +259,6 @@ impl App {
         drop(pool);
 
         // 删除目录
-        let pool = BlockingThreadPool::new(self.config.threads as usize);
         let total = &diff.old_folders.len();
         let mut done = 0;
         for f in &diff.old_folders {
@@ -270,14 +269,13 @@ impl App {
             println!("删除目录({}/{}): {}", done, total, f);
 
             if !self.config.delete_dir.is_empty() {
-                let sp = self.build_subprocesses(&self.config.delete_dir, &vars)?;
-                pool.execute(move || for mut p in sp { p.execute().unwrap() })
+                for mut p in self.build_subprocesses(&self.config.delete_dir, &vars)? { 
+                    p.execute().unwrap() 
+                }
             }
         }
-        drop(pool);
 
         // 创建目录
-        let pool = BlockingThreadPool::new(self.config.threads as usize);
         let total = &diff.new_folders.len();
         let mut done = 0;
         for f in &diff.new_folders {
@@ -288,11 +286,11 @@ impl App {
             println!("新目录({}/{}): {}", done, total, f);
 
             if !self.config.upload_dir.is_empty() {
-                let sp = self.build_subprocesses(&self.config.upload_dir, &vars)?;
-                pool.execute(move || for mut p in sp { p.execute().unwrap() })
+                for mut p in self.build_subprocesses(&self.config.upload_dir, &vars)? { 
+                    p.execute().unwrap()
+                }
             }
         }
-        drop(pool);
 
         // 上传文件
         let pool = BlockingThreadPool::new(self.config.threads as usize);

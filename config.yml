@@ -19,7 +19,7 @@ use-remote-state: false
 # 状态文件缩进数量
 state-indent: 2
 
-# 命令执行时使用的并发数，有效指令：delete-file, delete-dir, upload-file, making-dir
+# 命令执行时使用的并发数，有效指令：delete-file, upload-file
 threads: 1
 
 # commands节点下所有的命令执行时的工作目录，默认继承自父进程
