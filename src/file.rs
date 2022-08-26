@@ -84,8 +84,8 @@ impl File {
         self.raw.exists()
     }
 
-    pub fn path(&self) -> &str {
-        self.raw.to_str().unwrap()
+    pub fn path(&self) -> String {
+        self.raw.to_str().unwrap().replace("\\", "/")
     }
 
     pub fn get_raw(&self) -> &PathBuf {
@@ -96,14 +96,14 @@ impl File {
         path.relativized_by(self)
     }
 
-    pub fn relativized_by(&self, basis: &File) -> String {
-        let basis = &basis.path().replace("\\", "/")[..];
-        let path = &self.path().replace("\\", "/")[..];
+    pub fn relativized_by(&self, base: &File) -> String {
+        let base = &base.path().replace("\\", "/");
+        let path = &self.path().replace("\\", "/");
 
-        let basis = RelativePath::new(basis);
+        let base = RelativePath::new(base);
         let path = RelativePath::new(path);
 
-        basis.relative(path).to_string()
+        base.relative(path).to_string().replace("\\", "/")
     }
 
     pub fn mv(&self, destination: &str) -> Result<()> {
@@ -112,21 +112,21 @@ impl File {
         if !self.exists() {
             return Err(Error::new(
                 ErrorKind::NotFound, 
-                String::from("source path: ") + self.path()
+                String::from("source path: ") + &self.path()
             ));
         }
 
         if dest.exists() {
             return Err(Error::new(
                 ErrorKind::AlreadyExists, 
-                String::from("destination path: ") + dest.path()
+                String::from("destination path: ") + &dest.path()
             ));
         }
 
         if self.is_dir() != dest.is_dir() {
             return Err(Error::new(
                 ErrorKind::PermissionDenied,
-                String::from("the source and the destination has different types(is file/is dir)") + dest.path()
+                String::from("the source and the destination has different types(is file/is dir)") + &dest.path()
             ));
         }
 
@@ -141,14 +141,14 @@ impl File {
         if !self.exists() {
             return Err(Error::new(
                 ErrorKind::NotFound, 
-                String::from("source path: ") + self.path()
+                String::from("source path: ") + &self.path()
             ));
         }
 
         if dest.exists() {
             return Err(Error::new(
                 ErrorKind::AlreadyExists, 
-                String::from("destination path: ") + dest.path()
+                String::from("destination path: ") + &dest.path()
             ));
         }
 
@@ -169,7 +169,7 @@ impl File {
         if !self.exists() {
             return Err(Error::new(
                 ErrorKind::NotFound, 
-                String::from("source path: ") + self.path()
+                String::from("source path: ") + &self.path()
             ));
         }
 
@@ -202,7 +202,7 @@ impl File {
         if self.exists() {
             return Err(Error::new(
                 ErrorKind::AlreadyExists, 
-                String::from("failed to write file: ") + self.path()
+                String::from("failed to write file: ") + &self.path()
             ));
         }
         
@@ -213,7 +213,7 @@ impl File {
         if !self.exists() {
             return Err(Error::new(
                 ErrorKind::NotFound, 
-                String::from("failed tp open file: ") + self.path()
+                String::from("failed tp open file: ") + &self.path()
             ));
         }
 
@@ -228,14 +228,14 @@ impl File {
         if !self.exists() {
             return Err(Error::new(
                 ErrorKind::NotFound, 
-                String::from("source path: ") + self.path()
+                String::from("source path: ") + &self.path()
             ));
         }
 
         if self.is_dir() {
             return Err(Error::new(
                 ErrorKind::PermissionDenied, 
-                String::from("source path: ") + self.path()
+                String::from("source path: ") + &self.path()
             ));
         }
 

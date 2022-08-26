@@ -1,7 +1,8 @@
 use std::env;
 use std::io::Error;
 use std::io::ErrorKind;
-use std::process::Command;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use crate::AppResult;
 use crate::app_config::AppConfig;
@@ -13,8 +14,8 @@ use crate::file_state::State;
 use crate::hash_cache::HashCache;
 use crate::rule_filter::RuleFilter;
 use crate::simple_file::FileData;
+use crate::subprocess_task::SubprocessResult;
 use crate::subprocess_task::SubprocessTask;
-use crate::utils::command_split;
 use crate::variable_replace::VariableReplace;
 
 pub struct App {
@@ -59,8 +60,8 @@ impl App {
         let mut variables = VariableReplace::new();
         variables.variables.extend(config.variables.to_owned());
 
-        variables.add("source", sourcedir.path());
-        variables.add("workdir", workdir.path());
+        variables.add("source", &sourcedir.path());
+        variables.add("workdir", &workdir.path());
         
         Ok(App {
             options,
@@ -73,55 +74,73 @@ impl App {
         })
     }
 
-    fn build_subprocesses(&self, commands: &Vec<Vec<String>>, vars: &VariableReplace) -> AppResult<Vec<SubprocessTask>> {
-        let mut result: Vec<SubprocessTask> = Vec::new();
+    // fn build_subprocesses(&self, commands: &Vec<Vec<String>>, vars: &VariableReplace) -> AppResult<Vec<SubprocessTask>> {
+    //     let mut result: Vec<SubprocessTask> = Vec::new();
 
-        for command in commands {
-            result.push(self.build_subprocess(command, vars)?);
+    //     for command in commands {
+    //         result.push(self.build_subprocess(command, vars)?);
+    //     }
+
+    //     Ok(result)
+    // }
+
+    fn execute_multiple_thread(
+        &self, 
+        commands: &Vec<Vec<String>>, 
+        parallel: usize, 
+        varses: &Vec<VariableReplace>,
+        before_execute: Box<dyn Fn(&VariableReplace) + 'static>
+    ) -> AppResult<()> {
+        let pool = BlockingThreadPool::new(parallel);
+        
+        for vars in varses {
+            let vars = vars.clone();
+            let workdir = self.workdir.clone();
+            let debug = self.options.debug;
+            let commands = commands.clone();
+
+            before_execute(&vars);
+            
+            pool.execute(move || {
+                let mut last_result: Option<SubprocessResult> = None;
+                for step in commands {
+                    let mut task = SubprocessTask::from_command_line(
+                        &step, &workdir, &vars, 
+                        last_result.as_ref()).unwrap();
+        
+                    if debug {
+                        println!("> {:?}", task.raw_divided);
+                    }
+        
+                    last_result = Some(task.execute(false).unwrap());
+                }
+            })
         }
 
-        Ok(result)
+        drop(pool);
+
+        Ok(())
     }
 
-    fn build_subprocess(&self, command_devided: &Vec<String>, vars: &VariableReplace) -> AppResult<SubprocessTask> {
-        let workdir: &File = &self.workdir;
-        let debug: bool = self.options.debug;
-        let dry_run: bool = self.options.dryrun;
+    fn execute_single_thread(&self, commands: &Vec<Vec<String>>, vars: &VariableReplace) -> AppResult<()> {
+        let mut last_result: Option<SubprocessResult> = None;
+        for step in commands {
+            let mut task = SubprocessTask::from_command_line(
+                step, &self.workdir, vars, 
+                last_result.as_ref())?;
 
-        if command_devided.is_empty() {
-            return Err(Box::new(Error::new(ErrorKind::InvalidInput, "subprocess command line must be not empty")));
+            if self.options.debug {
+                println!("> {:?}", task.raw_divided);
+            }
+
+            last_result = Some(task.execute(false)?);
         }
 
-        let mut command_devided = command_devided.iter().map(|s| vars.apply(s)).collect::<Vec<String>>();
-
-        let do_not_split = command_devided[0].starts_with("+");
-        if do_not_split {
-            command_devided[0] = (&(command_devided[0])[1..]).to_owned();
-        }
-
-        if !do_not_split && command_devided.len() == 1 {
-            command_devided = command_split(&command_devided[0]);
-        }
-
-        let prog = command_devided.first().unwrap().clone(); 
-        let args = if command_devided.len() > 0 { command_devided[1..].to_vec() } else { vec![] };
-        
-        let workdir = vars.apply(workdir.path());
-        let mut subprocess = Command::new(prog.to_owned());
-
-        let path_separator = if cfg!(target_os = "windows") { ";" } else { ":" };
-        let path = subprocess.get_envs().filter_map(|(k, v)| if k == "PATH" { 
-            v.map_or_else(|| None, |value| Some(value.to_str().unwrap().to_owned()))
-        } else { None }).next();
-        subprocess.env("PATH", &((if path.is_some() { path.unwrap() + path_separator } else { "".to_string() }) + &workdir));
-        subprocess.args(args.to_owned());
-        subprocess.current_dir(workdir.to_owned());
-
-        Ok(SubprocessTask::new(if !dry_run { Some(subprocess) } else { None }, command_devided, debug, false))
+        Ok(())
     }
 
     fn get_state_file(&self) -> File {
-        File::new(&self.variables.apply(&self.config.state_file)[..])
+        File::new(&self.variables.apply(&self.config.state_file))
     }
 
     pub fn load_state_from_file(&self, state_file: &File) -> AppResult<State> {
@@ -134,9 +153,7 @@ impl App {
             } else if use_remote_state {
                 println!("从远端更新状态文件");
                 if !self.config.download_state.is_empty() {
-                    for mut p in self.build_subprocesses(&self.config.download_state, &self.variables)? {
-                        p.execute()?;
-                    }
+                    self.execute_single_thread(&self.config.download_state, &self.variables)?;
                 }
             }
 
@@ -185,13 +202,10 @@ impl App {
             if update_remote_state {
                 println!("更新远端状态文件...");
 
-                let mut vars = self.variables.to_owned();
-                vars.add("path", state_file.path());
-
                 if !self.config.upload_state.is_empty() {
-                    for mut p in self.build_subprocesses(&self.config.upload_state, &vars)? {
-                        p.execute()?;
-                    }
+                    let mut vars = self.variables.to_owned();
+                    vars.add("path", &state_file.path());
+                    self.execute_single_thread(&self.config.upload_state, &vars)?;
                 }
             }
 
@@ -231,32 +245,35 @@ impl App {
 
         // 执行用户初始化指令
         if comparer.differences.has_differences() && !self.config.start_up.is_empty() {
-            for mut p in self.build_subprocesses(&self.config.start_up, &self.variables)? {
-                p.execute()?;
-            }
+            self.execute_single_thread(&self.config.start_up, &self.variables)?;
         }
         
         // 删除文件
-        let pool = BlockingThreadPool::new(self.config.threads as usize);
         let filtered_old_files = diff.old_files
             .iter()
             .filter_map(|e| if self.config.overlay_mode && diff.new_files.contains(e) { None } else { Some(&e[..]) })
             .collect::<Vec<&str>>();
         let total = filtered_old_files.len();
-        let mut done = 0;
-        for f in filtered_old_files {
-            let mut vars = self.variables.to_owned();
-            vars.add("path", f);
+        let done = Arc::new(Mutex::new(0));
 
-            done += 1;
-            println!("删除文件({}/{}): {}", done, total, f);
+        if !self.config.delete_file.is_empty() {
+            let varses = filtered_old_files.iter().map(|f| {
+                let mut vars = self.variables.to_owned();
+                vars.add("path", f);
+                vars
+            }).collect::<Vec<VariableReplace>>();
 
-            if !self.config.delete_file.is_empty() {
-                let sp = self.build_subprocesses(&self.config.delete_file, &vars)?;
-                pool.execute(move || for mut p in sp { p.execute().unwrap() })
-            }
+            self.execute_multiple_thread(
+                &self.config.delete_file, 
+                self.config.threads as usize, 
+                &varses, 
+                Box::new(move |vars| {
+                    let mut done = done.lock().unwrap();
+                    *done += 1;
+                    println!("删除文件({}/{}): {}", done, total, vars.variables.get("path").unwrap());
+                }) 
+            )?;
         }
-        drop(pool);
 
         // 删除目录
         let total = &diff.old_folders.len();
@@ -269,9 +286,7 @@ impl App {
             println!("删除目录({}/{}): {}", done, total, f);
 
             if !self.config.delete_dir.is_empty() {
-                for mut p in self.build_subprocesses(&self.config.delete_dir, &vars)? { 
-                    p.execute().unwrap() 
-                }
+                self.execute_single_thread(&self.config.delete_dir, &vars)?;
             }
         }
 
@@ -286,35 +301,36 @@ impl App {
             println!("新目录({}/{}): {}", done, total, f);
 
             if !self.config.upload_dir.is_empty() {
-                for mut p in self.build_subprocesses(&self.config.upload_dir, &vars)? { 
-                    p.execute().unwrap()
-                }
+                self.execute_single_thread(&self.config.upload_dir, &vars)?;
             }
         }
 
         // 上传文件
-        let pool = BlockingThreadPool::new(self.config.threads as usize);
-        let total = &diff.new_files.len();
-        let mut done = 0;
-        for f in &diff.new_files {
-            let mut vars = self.variables.to_owned();
-            vars.add("path", f);
+        let total = diff.new_files.len();
+        let done = Arc::new(Mutex::new(0));
 
-            done += 1;
-            println!("新文件({}/{}): {}", done, total, f);
+        if !self.config.upload_file.is_empty() {
+            let varses = diff.new_files.iter().map(|f| {
+                let mut vars = self.variables.to_owned();
+                vars.add("path", f);
+                vars
+            }).collect::<Vec<VariableReplace>>();
 
-            if !self.config.upload_file.is_empty() {
-                let sp = self.build_subprocesses(&self.config.upload_file, &vars)?;
-                pool.execute(move || { for mut p in sp { p.execute().unwrap(); }})
-            }
+            self.execute_multiple_thread(
+                &self.config.upload_file, 
+                self.config.threads as usize, 
+                &varses, 
+                Box::new(move |vars| {
+                    let mut done = done.lock().unwrap();
+                    *done += 1;
+                    println!("新文件({}/{}): {}", done, total, vars.variables.get("path").unwrap());
+                })
+            )?;
         }
-        drop(pool);
 
         // 执行用户清理指令
         if comparer.differences.has_differences() && !self.config.clean_up.is_empty() {
-            for mut p in self.build_subprocesses(&self.config.clean_up, &self.variables)? {
-                p.execute()?;
-            }
+            self.execute_single_thread(&self.config.clean_up, &self.variables)?;
         }
 
         Ok(())
