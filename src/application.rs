@@ -274,6 +274,12 @@ impl App {
                     println!("删除文件({}/{}): {}", done, total, vars.variables.get("path").unwrap());
                 }) 
             )?;
+        } else {
+            for f in filtered_old_files {
+                let mut done = done.lock().unwrap();
+                *done += 1;
+                println!("删除文件({}/{}): {}", done, total, f);
+            }
         }
 
         // 删除目录
@@ -330,6 +336,12 @@ impl App {
                     println!("新文件({}/{}): {}", done, total, vars.variables.get("path").unwrap());
                 })
             )?;
+        } else {
+            for f in &diff.new_files {
+                let mut done = done.lock().unwrap();
+                *done += 1;
+                println!("新文件({}/{}): {}", done, total, f);
+            }
         }
 
         // 执行用户清理指令
