@@ -62,6 +62,8 @@ impl App {
 
         variables.add("source", &sourcedir.path());
         variables.add("workdir", &workdir.path());
+        variables.add("source_", &sourcedir.path().replace("\\", "/"));
+        variables.add("workdir_", &workdir.path().replace("\\", "/"));
         
         Ok(App {
             options,
@@ -203,9 +205,7 @@ impl App {
                 println!("更新远端状态文件...");
 
                 if !self.config.upload_state.is_empty() {
-                    let mut vars = self.variables.to_owned();
-                    vars.add("path", &state_file.path());
-                    self.execute_single_thread(&self.config.upload_state, &vars)?;
+                    self.execute_single_thread(&self.config.upload_state, &self.variables)?;
                 }
             }
 
@@ -260,6 +260,7 @@ impl App {
             let varses = filtered_old_files.iter().map(|f| {
                 let mut vars = self.variables.to_owned();
                 vars.add("path", f);
+                vars.add("path_", &f.replace("/", "\\"));
                 vars
             }).collect::<Vec<VariableReplace>>();
 
@@ -281,6 +282,7 @@ impl App {
         for f in &diff.old_folders {
             let mut vars = self.variables.to_owned();
             vars.add("path", f);
+            vars.add("path_", &f.replace("/", "\\"));
 
             done += 1;
             println!("删除目录({}/{}): {}", done, total, f);
@@ -296,6 +298,7 @@ impl App {
         for f in &diff.new_folders {
             let mut vars = self.variables.to_owned();
             vars.add("path", f);
+            vars.add("path_", &f.replace("/", "\\"));
 
             done += 1;
             println!("新目录({}/{}): {}", done, total, f);
@@ -313,6 +316,7 @@ impl App {
             let varses = diff.new_files.iter().map(|f| {
                 let mut vars = self.variables.to_owned();
                 vars.add("path", f);
+                vars.add("path_", &f.replace("/", "\\"));
                 vars
             }).collect::<Vec<VariableReplace>>();
 
