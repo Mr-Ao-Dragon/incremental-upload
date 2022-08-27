@@ -67,10 +67,10 @@ commands:
   clean-up: 
 
   # 将远程状态文件下载到本地的命令，仅当开启use-remote-state且use-local-state未被开启时会被执行
-  download-state: $cli cp $bucket/$state $state
+  download-state: $cli cp "$bucket/$state" $state
 
   # 将本地状态文件上传到远程的命令，仅当开启use-remote-state时会被执行
-  upload-state: $cli cp "$source/$path" $bucket/$state
+  upload-state: $cli cp "$source/$path" "$bucket/$state"
 
   # 删除远程文件的命令
   # 可用局部变量：$path：文件的相对路径、$path_：路径分隔符为反斜线版本的$path
@@ -82,7 +82,7 @@ commands:
 
   # 将本地文件上传到远程的命令
   # 可用局部变量：$path：文件的相对路径、$path_：路径分隔符为反斜线版本的$path
-  upload-file: $cli cp "$source/$path" "$bucket/rpath"
+  upload-file: $cli cp "$source/$path" "$bucket/$path"
 
   # 创建一个远程目录的命令
   # 可用局部变量：$path：文件的相对路径、$path_：路径分隔符为反斜线版本的$path
