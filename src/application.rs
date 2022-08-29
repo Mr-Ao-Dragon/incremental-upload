@@ -349,6 +349,12 @@ impl App {
             self.execute_single_thread(&self.config.clean_up, &self.variables)?;
         }
 
+        println!(
+            "旧文件: {}, 旧目录: {}, 新文件: {}, 新目录: {}", 
+            diff.old_files.len(), diff.old_folders.len(),
+            diff.new_files.len(), diff.new_folders.len(),
+        );
+
         Ok(())
     }
 

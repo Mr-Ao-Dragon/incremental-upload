@@ -45,9 +45,9 @@ impl FileComparer<'_> {
 
             if !directory.contains_file(t.name()) { // 文件不存在
                 let sf: Option<SimpleFile> = if t.is_dir() {
-                    Some(SimpleFile::from_real_directory(&t)?)
+                    Some(SimpleFile::from_real_directory(&t, Some((self.hash_cache, &self.base_path, self.debug_mode)))?)
                 } else if t.is_file() {
-                    Some(SimpleFile::from_real_file(&t)?)
+                    Some(SimpleFile::from_real_file(&t, Some((self.hash_cache, &self.base_path, self.debug_mode)))?)
                 } else {
                     None
                 };

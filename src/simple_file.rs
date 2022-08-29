@@ -1,4 +1,5 @@
 use crate::file::File;
+use crate::hash_cache::HashCache;
 use std::io::Result;
 
 pub struct FileData {
@@ -40,18 +41,24 @@ impl SimpleFile {
         }
     }
 
-    pub fn from_real_file(file: &File) -> Result<SimpleFile> {
-        Ok(SimpleFile::new_file(file.name(), file.length()?, &file.sha1()?, file.modified()?))
+    pub fn from_real_file(file: &File, extra: Option<(&HashCache, &File, bool)>) -> Result<SimpleFile> {
+        let hash = if let Some(extra) = extra {
+            let (hash_cache, base_path, debug_mode) = extra;
+            hash_cache.get_hash(&file.relativized_by(base_path), debug_mode)
+        } else {
+            file.sha1()?
+        };
+        Ok(SimpleFile::new_file(file.name(), file.length()?, &hash, file.modified()?))
     }
 
-    pub fn from_real_directory(dir: &File) -> Result<SimpleFile> {
+    pub fn from_real_directory(dir: &File, extra: Option<(&HashCache, &File, bool)>) -> Result<SimpleFile> {
         let files = dir.files()?
             .filter_map(|v| v.ok())
             .filter_map(|v: File| -> Option<SimpleFile> {
                 if v.is_dir() {
-                    Some(SimpleFile::from_real_directory(&v).map_or_else(|_e| None, |v| Some(v))?)
+                    Some(SimpleFile::from_real_directory(&v, extra).map_or_else(|_e| None, |v| Some(v))?)
                 } else if v.is_file() {
-                    Some(SimpleFile::from_real_file(&v).map_or_else(|_e| None, |v| Some(v))?)
+                    Some(SimpleFile::from_real_file(&v, extra).map_or_else(|_e| None, |v| Some(v))?)
                 } else {
                     None
                 }

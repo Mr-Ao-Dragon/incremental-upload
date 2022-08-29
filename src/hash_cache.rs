@@ -18,9 +18,13 @@ impl HashCache {
         if !map.contains_key(relative_path) {
             let file = self.sourcedir.append(relative_path).unwrap();
             if debug_mode {
-                println!("hash: {}", relative_path);
+                println!("hash cache miss: {}", relative_path);
             }
             map.insert(relative_path.to_owned(), file.sha1().unwrap());
+        } else {
+            if debug_mode {
+                println!("hash cache hit: {}", relative_path);
+            }
         }
 
         map.get(relative_path).unwrap().to_owned()
