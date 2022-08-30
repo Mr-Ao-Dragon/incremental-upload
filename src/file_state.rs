@@ -1,7 +1,6 @@
 use json::JsonValue;
 use json::object;
 
-use crate::differences::Differences;
 use crate::file::File;
 use crate::hash_cache::HashCache;
 use crate::simple_file::DirData;
@@ -68,56 +67,38 @@ impl State {
         gen(&self.files)
     }
 
-    pub fn update_from_differences(&mut self, differences: &Differences, sourcedir: &File, hash_cache: &HashCache, debug_mode: bool) {
-        for f in &differences.old_files {
-            self.files.remove_file(f);
-            // println!("remove file: {}", f);
-        }
+    pub fn remove_file_or_dir(&mut self, path: &str) {
+        self.files.remove_file(path);
+    }
 
-        for f in &differences.old_folders {
-            self.files.remove_file(f);
-            // println!("remove dir: {}", f);
-        }
+    pub fn make_dir(&mut self, path: &str) {
+        let parent = get_dirname(path);
+        let filename = get_basename(path);
 
-        for f in &differences.new_folders {
-            let parent = get_dirname(f);
-            let filename = get_basename(f);
-            // println!("new dir: {}", f);
+        let dir: &mut DirData = if parent.is_some() {
+            self.files.get_file_mut(parent.unwrap()).unwrap().as_dir_mut().unwrap()
+        } else {
+            &mut self.files
+        };
+        
+        dir.files.push(SimpleFile::new_directory(filename, Vec::new()));
+    }
 
-            let dir: &mut DirData = if parent.is_some() {
-                self.files.get_file_mut(parent.unwrap()).unwrap().as_dir_mut().unwrap()
-            } else {
-                &mut self.files
-            };
-            
-            dir.files.push(SimpleFile::new_directory(filename, Vec::new()));
-        }
+    pub fn add_file(&mut self, path: &str, sourcedir: &File, hash_cache: &HashCache, debug_mode: bool) {
+        let parent = get_dirname(path);
+        let filename = get_basename(path);
 
-        // let cpus = num_cpus::get();
-        // let pool = BlockingThreadPool::new(cpus);
+        let dir: &mut DirData = if parent.is_some() {
+            self.files.get_file_mut(parent.unwrap()).unwrap().as_dir_mut().unwrap()
+        } else {
+            &mut self.files
+        };
 
-        for f in &differences.new_files {
-            let parent = get_dirname(f);
-            let filename = get_basename(f);
-
-            let dir: &mut DirData = if parent.is_some() {
-                self.files.get_file_mut(parent.unwrap()).unwrap().as_dir_mut().unwrap()
-            } else {
-                &mut self.files
-            };
-
-            
-            let file = sourcedir.append(f).unwrap();
-
-            // pool.execute(move || {
-                let length = file.length().unwrap();
-                let sha1 = hash_cache.get_hash(f, debug_mode);
-                let modified = file.modified().unwrap();
-                dir.files.push(SimpleFile::new_file(filename, length, &sha1, modified))
-            // });
-        }
-
-        // drop(pool);
+        let file = sourcedir.append(path).unwrap();
+        let length = file.length().unwrap();
+        let sha1 = hash_cache.get_hash(path, debug_mode);
+        let modified = file.modified().unwrap();
+        dir.files.push(SimpleFile::new_file(filename, length, &sha1, modified));
     }
 }
 

@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::env;
 use std::io::Error;
 use std::io::ErrorKind;
@@ -22,7 +23,7 @@ pub struct App {
     options: AppOptions,
     config: AppConfig,
     variables: VariableReplace,
-    hash_cache: HashCache,
+    hash_cache: Arc<HashCache>,
     file_filter: RuleFilter,
     sourcedir: File,
     workdir: File,
@@ -54,7 +55,7 @@ impl App {
             return Err(Box::new(Error::new(ErrorKind::NotFound, String::from(format!("the workdir is not a dir: {}", workdir.path())))))
         }
 
-        let hash_cache = HashCache::new(&sourcedir);
+        let hash_cache = Arc::new(HashCache::new(&sourcedir));
         let file_filter = RuleFilter::new(&config.file_filters)?;
 
         let mut variables = VariableReplace::new();
@@ -76,30 +77,23 @@ impl App {
         })
     }
 
-    // fn build_subprocesses(&self, commands: &Vec<Vec<String>>, vars: &VariableReplace) -> AppResult<Vec<SubprocessTask>> {
-    //     let mut result: Vec<SubprocessTask> = Vec::new();
-
-    //     for command in commands {
-    //         result.push(self.build_subprocess(command, vars)?);
-    //     }
-
-    //     Ok(result)
-    // }
-
     fn execute_multiple_thread(
         &self, 
         commands: &Vec<Vec<String>>, 
         parallel: usize, 
         varses: &Vec<VariableReplace>,
-        before_execute: Box<dyn Fn(&VariableReplace) + 'static>
+        before_execute: Box<dyn Fn(&VariableReplace) + Send + Sync>,
+        after_execute: Box<dyn Fn(&VariableReplace) + Send + Sync>
     ) -> AppResult<()> {
         let pool = BlockingThreadPool::new(parallel);
-        
+        let after_execute = Arc::new(after_execute);
+
         for vars in varses {
             let vars = vars.clone();
             let workdir = self.workdir.clone();
             let debug = self.options.debug;
             let commands = commands.clone();
+            let after_execute = after_execute.clone();
 
             before_execute(&vars);
             
@@ -116,10 +110,10 @@ impl App {
         
                     last_result = Some(task.execute(false).unwrap());
                 }
+
+                after_execute(&vars);
             })
         }
-
-        drop(pool);
 
         Ok(())
     }
@@ -174,7 +168,7 @@ impl App {
         Ok(State::from_json_array(&state))
     }
 
-    pub fn save_state_file(&self, comparer: &FileComparer, state_file: &File, state: &mut State) -> AppResult<()> {
+    pub fn save_state_file(&self, comparer: &FileComparer, state_file: &File, state: &State) -> AppResult<()> {
         // let state_file = File::new("state-out.json");
 
         let update_local_state = self.config.use_local_state;
@@ -189,7 +183,6 @@ impl App {
                 state_file.rm()?;
             }
             
-            state.update_from_differences(&comparer.differences, &self.sourcedir, &self.hash_cache, self.options.debug);
             let file_contents = state.to_json_array();
             let file_contents = if self.config.state_indent > 0 { 
                 file_contents.pretty(self.config.state_indent as u16)
@@ -234,7 +227,7 @@ impl App {
         Ok(comparer)
     }
 
-    pub fn execute_operations(&self, comparer: &FileComparer) -> AppResult<()> {
+    pub fn execute_operations(&self, comparer: &FileComparer, state: Arc<Mutex<Cell<State>>>) -> AppResult<()> {
         let diff = &comparer.differences;
 
         println!(
@@ -249,98 +242,134 @@ impl App {
         }
         
         // 删除文件
-        let filtered_old_files = diff.old_files
-            .iter()
-            .filter_map(|e| if self.config.overlay_mode && diff.new_files.contains(e) { None } else { Some(&e[..]) })
-            .collect::<Vec<&str>>();
-        let total = filtered_old_files.len();
-        let done = Arc::new(Mutex::new(0));
+        {
+            let filtered_old_files = diff.old_files
+                .iter()
+                .filter_map(|e| if self.config.overlay_mode && diff.new_files.contains(e) { None } else { Some(&e[..]) })
+                .collect::<Vec<&str>>();
+            let total = filtered_old_files.len();
+            let done = Arc::new(Mutex::new(0));
 
-        if !self.config.delete_file.is_empty() {
-            let varses = filtered_old_files.iter().map(|f| {
-                let mut vars = self.variables.to_owned();
-                vars.add("path", f);
-                vars.add("path_", &f.replace("/", "\\"));
-                vars
-            }).collect::<Vec<VariableReplace>>();
+            if !self.config.delete_file.is_empty() {
+                let varses = filtered_old_files.iter().map(|f| {
+                    let mut vars = self.variables.to_owned();
+                    vars.add("path", f);
+                    vars.add("path_", &f.replace("/", "\\"));
+                    vars
+                }).collect::<Vec<VariableReplace>>();
 
-            self.execute_multiple_thread(
-                &self.config.delete_file, 
-                self.config.threads as usize, 
-                &varses, 
-                Box::new(move |vars| {
+                let state = state.clone();
+
+                self.execute_multiple_thread(
+                    &self.config.delete_file, 
+                    self.config.threads as usize, 
+                    &varses, 
+                    Box::new(move |vars| {
+                        let mut done = done.lock().unwrap();
+                        *done += 1;
+                        println!("删除文件({}/{}): {}", done, total, vars.variables.get("path").unwrap());
+                    }),
+                    Box::new(move |vars| {
+                        let path = vars.variables.get("path").unwrap();
+                        state.clone().lock().unwrap().get_mut().remove_file_or_dir(&path);
+                    })
+                )?;
+            } else {
+                for f in &filtered_old_files {
                     let mut done = done.lock().unwrap();
                     *done += 1;
-                    println!("删除文件({}/{}): {}", done, total, vars.variables.get("path").unwrap());
-                }) 
-            )?;
-        } else {
-            for f in filtered_old_files {
-                let mut done = done.lock().unwrap();
-                *done += 1;
-                println!("删除文件({}/{}): {}", done, total, f);
+                    state.lock().unwrap().get_mut().remove_file_or_dir(&f);
+                    println!("删除文件({}/{}): {}", done, total, f);
+                }
+            }
+
+            // 同步更新状态(删除剩余的文件)
+            for d in &diff.old_files {
+                if !filtered_old_files.contains(&(&d[..])) {
+                    state.lock().unwrap().get_mut().remove_file_or_dir(d);
+                }
             }
         }
 
         // 删除目录
-        let total = &diff.old_folders.len();
-        let mut done = 0;
-        for f in &diff.old_folders {
-            let mut vars = self.variables.to_owned();
-            vars.add("path", f);
-            vars.add("path_", &f.replace("/", "\\"));
+        {
+            let total = &diff.old_folders.len();
+            let mut done = 0;
+            for f in &diff.old_folders {
+                let mut vars = self.variables.to_owned();
+                vars.add("path", f);
+                vars.add("path_", &f.replace("/", "\\"));
 
-            done += 1;
-            println!("删除目录({}/{}): {}", done, total, f);
+                done += 1;
+                println!("删除目录({}/{}): {}", done, total, f);
 
-            if !self.config.delete_dir.is_empty() {
-                self.execute_single_thread(&self.config.delete_dir, &vars)?;
+                if !self.config.delete_dir.is_empty() {
+                    self.execute_single_thread(&self.config.delete_dir, &vars)?;
+                }
+
+                state.lock().unwrap().get_mut().remove_file_or_dir(f);
             }
         }
 
         // 创建目录
-        let total = &diff.new_folders.len();
-        let mut done = 0;
-        for f in &diff.new_folders {
-            let mut vars = self.variables.to_owned();
-            vars.add("path", f);
-            vars.add("path_", &f.replace("/", "\\"));
+        {
+            let total = &diff.new_folders.len();
+            let mut done = 0;
+            for f in &diff.new_folders {
+                let mut vars = self.variables.to_owned();
+                vars.add("path", f);
+                vars.add("path_", &f.replace("/", "\\"));
 
-            done += 1;
-            println!("新目录({}/{}): {}", done, total, f);
+                done += 1;
+                println!("新目录({}/{}): {}", done, total, f);
 
-            if !self.config.upload_dir.is_empty() {
-                self.execute_single_thread(&self.config.upload_dir, &vars)?;
+                if !self.config.upload_dir.is_empty() {
+                    self.execute_single_thread(&self.config.upload_dir, &vars)?;
+                }
+
+                state.lock().unwrap().get_mut().make_dir(f);
             }
         }
 
         // 上传文件
-        let total = diff.new_files.len();
-        let done = Arc::new(Mutex::new(0));
-
-        if !self.config.upload_file.is_empty() {
-            let varses = diff.new_files.iter().map(|f| {
-                let mut vars = self.variables.to_owned();
-                vars.add("path", f);
-                vars.add("path_", &f.replace("/", "\\"));
-                vars
-            }).collect::<Vec<VariableReplace>>();
-
-            self.execute_multiple_thread(
-                &self.config.upload_file, 
-                self.config.threads as usize, 
-                &varses, 
-                Box::new(move |vars| {
+        {
+            let total = diff.new_files.len();
+            let done = Arc::new(Mutex::new(0));
+    
+            if !self.config.upload_file.is_empty() {
+                let varses = diff.new_files.iter().map(|f| {
+                    let mut vars = self.variables.to_owned();
+                    vars.add("path", f);
+                    vars.add("path_", &f.replace("/", "\\"));
+                    vars
+                }).collect::<Vec<VariableReplace>>();
+    
+                let sourcedir = self.sourcedir.to_owned();
+                let hash_cache = self.hash_cache.clone();
+                let debug = self.options.debug;
+                let state = state.clone();
+    
+                self.execute_multiple_thread(
+                    &self.config.upload_file, 
+                    self.config.threads as usize, 
+                    &varses, 
+                    Box::new(move |vars| {
+                        let mut done = done.lock().unwrap();
+                        *done += 1;
+                        println!("新文件({}/{}): {}", done, total, vars.variables.get("path").unwrap());
+                    }),
+                    Box::new(move |vars| {
+                        let path = vars.variables.get("path").unwrap();
+                        state.lock().unwrap().get_mut().add_file(&path, &sourcedir, &hash_cache, debug);
+                    })
+                )?;
+            } else {
+                for f in &diff.new_files {
                     let mut done = done.lock().unwrap();
                     *done += 1;
-                    println!("新文件({}/{}): {}", done, total, vars.variables.get("path").unwrap());
-                })
-            )?;
-        } else {
-            for f in &diff.new_files {
-                let mut done = done.lock().unwrap();
-                *done += 1;
-                println!("新文件({}/{}): {}", done, total, f);
+                    println!("新文件({}/{}): {}", done, total, f);
+                    state.lock().unwrap().get_mut().add_file(f, &self.sourcedir, &self.hash_cache, self.options.debug);
+                }
             }
         }
 
@@ -388,14 +417,14 @@ impl App {
         }
 
         let state_file = self.get_state_file();
-        let mut state = self.load_state_from_file(&state_file)?;
-        let comparer = self.compare_files(&state)?;
+        let state = Arc::new(Mutex::new(Cell::new(self.load_state_from_file(&state_file)?)));
+        let comparer = self.compare_files(state.lock().unwrap().get_mut())?;
 
         // 执行远端读写操作
-        self.execute_operations(&comparer)?;
+        self.execute_operations(&comparer, state.clone())?;
         
         // 更新状态文件
-        self.save_state_file(&comparer, &state_file, &mut state)?;
+        self.save_state_file(&comparer, &state_file, state.lock().unwrap().get_mut())?;
 
         Ok(())
     }
