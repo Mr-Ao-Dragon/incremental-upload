@@ -1,0 +1,84 @@
+# 此文件为 FTP 示例配置文件
+
+# 源目录路径（支持使用自定义变量）
+source-dir: $source
+
+# 状态文件路径（支持使用自定义变量）
+state-file: $state
+
+# 是否开启覆盖模式，开启后需要先删除后上传的文件会跳过删除步骤，仅进行上传
+overlay-mode: true
+
+# 是否开启快速对比模式，开启后优先对比文件修改时间，然后才是文件hash
+fast-comparison: true
+
+# 是否使用本地状态文件，若与use-remote-state同时开启，则download-state不会被执行
+use-local-state: true
+
+# 是否使用远程状态文件，若与use-local-state同时开启，则download-state不会被执行
+use-remote-state: false
+
+# 状态文件缩进数量
+state-indent: 4
+
+# 命令执行时使用的并发数，有效指令：delete-file, upload-file
+threads: 1
+
+# commands节点下所有的命令执行时的工作目录，默认继承自父进程
+command-workdir: 
+
+# 文件过滤器，使用正则表达式语法，匹配的文件才会被执行到delete-file, delete-dir, upload-file, making-dir命令中
+# 若有多个过滤器，文件路径需要全部匹配才会执行delete-file, delete-dir, upload-file, making-dir命令
+# 如果过滤器以!开头，则过滤器的匹配条件会被翻转。未匹配时返回true，匹配时返回false
+file-filters: []
+
+# 自定义变量定义，变量之间可以互相嵌套
+variables:
+  source: testdir
+  state: state.json
+
+# 文件操作命令
+# 所有命令可用的全局变量：
+#   $source：源目录的绝对路径
+#   $workdir：工作目录的绝对路径
+# 每个子指令都可以写成列表的形式来执行多个步骤，比如
+# start-up:
+#   - echo step one now
+#   - echo step two now
+# 如果子命令写成上面那样的单行单行的列表，每一行的字符串都会被按空格拆分成程序名+应用程序参数的形式
+# 如果写成子列表的形式，则直接使用你指定的拆分顺序，而不是由程序自动按空格拆分（多数情况下你并不需要用到该功能）
+# 也可以将子命令写成列表和单行混用的形式。如果你的命令行就是单行，且不希望被自动拆分，可以在字符串最前面加一个+来避免
+# start-up: # 演示混合风格
+#   - echo step one now # 使用自动命令行拆分（按空格）：[echo, step, one, now]，其中echo是程序名，step和one是参数
+#   - - echo # 使用手动命令行拆分：[echo, step one, now]，其中echo是程序名，step one是参数1。now是参数2
+#     - step two
+#     - now
+#   - +echo step three now # 禁用自动命令行拆分：[echo step three now]，其中echo step three now是一个完整的文件名，后面无任何参数
+commands:
+  # 传输初始化命令，在有文件差异存在时，此命令最先被执行。若无文件差异，则不会被执行
+  start-up: 
+
+  # 传输清理命令，在有文件差异存在时，此命令最后被执行。若无文件差异，则不会被执行
+  clean-up: 
+
+  # 将远程状态文件下载到本地的命令，仅当开启use-remote-state且use-local-state未被开启时会被执行
+  download-state: 
+
+  # 将本地状态文件上传到远程的命令，仅当开启use-remote-state时会被执行
+  upload-state: 
+
+  # 删除远程文件的命令
+  # 可用局部变量：$path：文件的相对路径
+  delete-file: 
+
+  # 删除远程目录的命令
+  # 可用局部变量：$path：文件的相对路径
+  delete-dir: 
+
+  # 将本地文件上传到远程的命令
+  # 可用局部变量：$path：文件的相对路径
+  upload-file: 
+
+  # 创建一个远程目录的命令
+  # 可用局部变量：$path：文件的相对路径
+  making-dir: 
