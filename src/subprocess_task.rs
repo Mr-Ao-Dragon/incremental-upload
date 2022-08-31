@@ -77,7 +77,10 @@ impl SubprocessTask {
     pub fn execute(&mut self, show_output: bool) -> Result<SubprocessResult> {
         let result = &mut self.subprocess
             .output()
-            .expect(&format!("failed to execute command-line: {:?}", self.raw_divided));
+            .map_err(|e| {
+                let msg = &format!("failed to execute command-line: {:?} {:?}", self.raw_divided, e.to_string());
+                Error::new(e.kind(), msg.to_owned())
+            })?;
     
         let code = result.status.code();
 

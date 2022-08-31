@@ -85,7 +85,7 @@ impl App {
         before_execute: Box<dyn Fn(&VariableReplace) + Send + Sync>,
         after_execute: Box<dyn Fn(&VariableReplace) + Send + Sync>
     ) -> AppResult<()> {
-        let pool = BlockingThreadPool::new(parallel);
+        let mut pool = BlockingThreadPool::new(parallel);
         let after_execute = Arc::new(after_execute);
 
         for vars in varses {
@@ -108,11 +108,25 @@ impl App {
                         println!("> {:?}", task.raw_divided);
                     }
         
-                    last_result = Some(task.execute(false).unwrap());
+                    let r = task.execute(false);
+                    if r.is_err() {
+                        return Err(Box::new(r.err().unwrap()));
+                    }
+                    let r = r.unwrap();
+                    last_result = Some(r);
                 }
 
                 after_execute(&vars);
-            })
+
+                Ok(())
+            });
+
+            let r = pool.close_and_wait();
+
+            if r.is_err() {
+                let err = r.err().unwrap();
+                return Err(err);
+            }
         }
 
         Ok(())
@@ -169,8 +183,6 @@ impl App {
     }
 
     pub fn save_state_file(&self, comparer: &FileComparer, state_file: &File, state: &State) -> AppResult<()> {
-        // let state_file = File::new("state-out.json");
-
         let update_local_state = self.config.use_local_state;
         let update_remote_state = self.config.use_remote_state;
 
@@ -421,10 +433,16 @@ impl App {
         let comparer = self.compare_files(state.lock().unwrap().get_mut())?;
 
         // 执行远端读写操作
-        self.execute_operations(&comparer, state.clone())?;
+        let result = self.execute_operations(&comparer, state.clone());
         
+        if result.is_err() {
+            println!("更新状态时出现错误，保存状态文件");
+        }
+
         // 更新状态文件
         self.save_state_file(&comparer, &state_file, state.lock().unwrap().get_mut())?;
+
+        result?;
 
         Ok(())
     }
